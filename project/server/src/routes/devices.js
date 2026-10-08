@@ -95,7 +95,7 @@ function evaluateWaterQuality(tds, turbidity) {
 
 // สูตร THI มาตรฐาน (NRC) — ใช้อุณหภูมิเป็นองศาเซลเซียส
 function calculateTHI(tempC, humidityPct) {
-    return (0.8 * tempC) - ((0.55 - 0.0055 * humidityPct) * (1.8 * tempC - 26));
+    return (1.8 * tempC + 32) - ((0.55 - 0.0055 * humidityPct) * (1.8 * tempC - 26));
 }
 
 // เกณฑ์ THI ปรับสำหรับวัวลูกผสมไทย (อ้างอิงงานวิจัย Thai-Holstein crossbred)
