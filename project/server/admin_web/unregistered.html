@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>อุปกรณ์ที่ไม่รู้จัก — เว็บแอดมิน</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="app-shell">
+        <div class="sidebar" id="sidebar"></div>
+        <div class="main">
+            <h1>อุปกรณ์ที่ไม่รู้จัก</h1>
+            <p class="page-subtitle">
+                MAC Address ที่ ESP32 พยายามเชื่อมต่อเข้ามา แต่ยังไม่มีใครลงทะเบียนในแอป (เช่น
+                พิมพ์ MAC ผิด หรือเกษตรกรจำ MAC ไม่ได้) — แจ้ง MAC ที่เห็นที่นี่ให้เกษตรกรลงทะเบียนในแอป
+                ระบบจะลบรายการออกเองเมื่อจับคู่สำเร็จ ถ้าเปิดใช้ขั้นตอนล้างรายการตอนลงทะเบียน</p>
+            <div id="content" class="loading">กำลังโหลด...</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="sidebar.js"></script>
+    <script>
+        requireLogin();
+        renderSidebar('unregistered');
+
+        async function load() {
+            const content = document.getElementById('content');
+            try {
+                const { data } = await apiFetch('/admin/unregistered-devices');
+
+                if (data.length === 0) {
+                    content.innerHTML = '<div class="empty">ไม่มีอุปกรณ์ที่พยายามเชื่อมต่อโดยยังไม่ลงทะเบียน</div>';
+                    return;
+                }
+
+                const rows = data
+                    .map(
+                        (d) => `
+        <tr class="row-caution">
+            <td style="font-family: monospace; font-size: 13px;">${escapeHtml(d.mac_address)}</td>
+            <td>${escapeHtml((d.reported_sensors || []).join(', ') || '-')}</td>
+            <td>${escapeHtml(d.last_ip || '-')}</td>
+            <td>${formatThaiDateTime(d.first_seen_at)}</td>
+            <td>${formatThaiDateTime(d.last_seen_at)}</td>
+        </tr>
+        `
+                    )
+                    .join('');
+
+                content.innerHTML = `
+        <div class="card">
+            <table>
+            <thead>
+                <tr><th>MAC Address</th><th>เซนเซอร์ที่รายงาน</th><th>IP ล่าสุด</th><th>เห็นครั้งแรก</th><th>เห็นล่าสุด</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            </table>
+        </div>
+        `;
+            } catch (err) {
+                content.innerHTML = `<div class="empty">โหลดข้อมูลไม่สำเร็จ: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        load();
+    </script>
+</body>
+
+</html>

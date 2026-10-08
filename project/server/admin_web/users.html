@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>จัดการผู้ใช้ — เว็บแอดมิน</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main">
+      <h1>จัดการผู้ใช้</h1>
+      <p class="page-subtitle">รายชื่อผู้ใช้ทั้งหมดในระบบ — แถวสีแดงคือบัญชีที่ถูกระงับอยู่</p>
+      <div class="toolbar">
+        <input type="text" id="searchBox" placeholder="ค้นหาด้วยชื่อผู้ใช้หรืออีเมล..." style="max-width: 320px; margin-bottom: 0;" oninput="applySearch()">
+      </div>
+      <div id="content" class="loading">กำลังโหลด...</div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="sidebar.js"></script>
+  <script>
+    requireLogin();
+    renderSidebar('users');
+
+    let users = [];
+    let filteredUsers = [];
+
+    function isBanned(user) {
+      return user.banned_until && new Date(user.banned_until) > new Date();
+    }
+
+    function applySearch() {
+      const query = document.getElementById('searchBox').value.trim().toLowerCase();
+      filteredUsers = !query
+        ? users
+        : users.filter(
+            (u) => u.username.toLowerCase().includes(query) || u.email.toLowerCase().includes(query)
+          );
+      renderTable();
+    }
+
+    function renderTable() {
+      const content = document.getElementById('content');
+      if (filteredUsers.length === 0) {
+        content.innerHTML = '<div class="empty">ไม่พบผู้ใช้ที่ตรงกับคำค้นหา</div>';
+        return;
+      }
+
+      // หมายเหตุ: onclick ส่งเฉพาะ user_id (UUID ที่เซิร์ฟเวอร์สร้าง) ไม่ใส่ username
+      // เพราะ username ผู้ใช้ตั้งเอง ถ้าใส่ลงใน onclick จะเปิดช่องโจมตี (XSS) ได้
+      const rows = filteredUsers
+        .map((u) => {
+          const banned = isBanned(u);
+          return `
+        <tr class="${banned ? 'row-attention' : ''}">
+          <td>${escapeHtml(u.username)}</td>
+          <td>${escapeHtml(u.email)}</td>
+          <td>${u.is_admin ? '<span class="pill pill-warning">แอดมิน</span>' : '<span class="pill pill-muted">เกษตรกร</span>'}</td>
+          <td>${banned ? '<span class="pill pill-danger">ถูกระงับอยู่</span>' : '<span class="pill pill-success">ใช้งานได้ปกติ</span>'}</td>
+          <td>${formatThaiDateTime(u.created_at)}</td>
+          <td>${u.last_sign_in_at ? formatThaiDateTime(u.last_sign_in_at) : '<span style="color:var(--text-muted);">ยังไม่เคย login</span>'}</td>
+          <td class="col-actions">
+            <div class="btn-row">
+              <button class="btn-secondary btn-small" onclick="viewDetails('${u.user_id}')">🔍 รายละเอียด</button>
+              ${
+                banned
+                  ? `<button class="btn-secondary btn-small" onclick="enableUser('${u.user_id}')">✅ ปลดระงับ</button>`
+                  : `<button class="btn-secondary btn-small" onclick="disableUser('${u.user_id}')">⛔ ระงับ</button>`
+              }
+              <button class="btn-danger btn-small" onclick="deleteUser('${u.user_id}')">🗑️ ลบ</button>
+            </div>
+          </td>
+        </tr>
+      `;
+        })
+        .join('');
+
+      content.innerHTML = `
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>ชื่อผู้ใช้</th><th>อีเมล</th><th>บทบาท</th><th>สถานะบัญชี</th><th>สมัครเมื่อ</th><th>เข้าสู่ระบบล่าสุด</th><th>จัดการ</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    async function load() {
+      try {
+        const { data } = await apiFetch('/admin/users');
+        users = data;
+        filteredUsers = data;
+        renderTable();
+      } catch (err) {
+        document.getElementById('content').innerHTML = `<div class="empty">โหลดข้อมูลไม่สำเร็จ: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function viewDetails(userId) {
+      try {
+        const { data } = await apiFetch(`/admin/users/${userId}`);
+        const farmLines = (data.farms || []).length
+          ? data.farms.map((f) => `- ${f.farms?.farm_name || '(ไม่ทราบชื่อ)'} (${f.role})`).join('\n')
+          : 'ยังไม่เป็นสมาชิกฟาร์มไหนเลย';
+        alert(`ผู้ใช้: ${data.username} (${data.email})\n\nฟาร์มที่เป็นสมาชิก:\n${farmLines}`);
+      } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+      }
+    }
+
+    async function disableUser(userId) {
+      if (!confirm('ระงับบัญชีนี้? ผู้ใช้จะเข้าสู่ระบบไม่ได้จนกว่าจะปลดระงับ')) return;
+      try {
+        await apiFetch(`/admin/users/${userId}/disable`, { method: 'PATCH' });
+        load();
+      } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+      }
+    }
+
+    async function enableUser(userId) {
+      try {
+        await apiFetch(`/admin/users/${userId}/enable`, { method: 'PATCH' });
+        load();
+      } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+      }
+    }
+
+    async function deleteUser(userId) {
+      const username = users.find((u) => u.user_id === userId)?.username || userId;
+      if (!confirm(`ลบบัญชี "${username}" ถาวร? ข้อมูลทั้งหมดที่เกี่ยวข้องจะถูกลบไปด้วย และย้อนกลับไม่ได้`)) return;
+      try {
+        await apiFetch(`/admin/users/${userId}`, { method: 'DELETE' });
+        load();
+      } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

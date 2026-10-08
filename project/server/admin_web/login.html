@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>เข้าสู่ระบบ — เว็บแอดมิน</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <h1>เว็บแอดมิน</h1>
+    <p>เข้าสู่ระบบด้วยบัญชีแอดมิน</p>
+
+    <form id="loginForm">
+      <label for="email">อีเมล</label>
+      <input type="email" id="email" required autocomplete="username">
+
+      <label for="password">รหัสผ่าน</label>
+      <input type="password" id="password" required autocomplete="current-password">
+
+      <div id="errorText" class="error-text" style="display:none;"></div>
+
+      <button type="submit" class="btn-primary" id="submitBtn">เข้าสู่ระบบ</button>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // ถ้ามี token ค้างอยู่แล้ว ลองเช็คว่ายังใช้ได้ไหม ถ้าได้ก็ข้ามไปหน้า dashboard เลย
+    (async () => {
+      if (getToken()) {
+        try {
+          await apiFetch('/admin/overview');
+          window.location.href = '/admin/index.html';
+        } catch (e) {
+          clearToken();
+        }
+      }
+    })();
+
+    const form = document.getElementById('loginForm');
+    const errorText = document.getElementById('errorText');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorText.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'กำลังเข้าสู่ระบบ...';
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const response = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+        let data = {};
+        try {
+          data = await response.json();
+        } catch (parseError) {
+          throw new Error(`เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (status ${response.status}) — เช็ค terminal ที่รัน server ว่ามี error อะไรขึ้นไหม`);
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || 'เข้าสู่ระบบไม่สำเร็จ');
+        }
+
+        setToken(data.accessToken);
+
+        // ยืนยันว่าเป็นแอดมินจริง ก่อนพาเข้าหน้า dashboard
+        try {
+          await apiFetch('/admin/overview');
+          localStorage.setItem('admin_email', email);
+          window.location.href = '/admin/index.html';
+        } catch (adminError) {
+          clearToken();
+          throw new Error('บัญชีนี้ไม่มีสิทธิ์แอดมิน');
+        }
+      } catch (err) {
+        errorText.textContent = err.message;
+        errorText.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'เข้าสู่ระบบ';
+      }
+    });
+  </script>
+</body>
+</html>

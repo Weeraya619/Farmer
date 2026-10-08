@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Log การแจ้งเตือน — เว็บแอดมิน</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main">
+      <h1>Log การแจ้งเตือน</h1>
+      <p class="page-subtitle">ประวัติแจ้งเตือนที่ระบบส่งให้เกษตรกรทุกฟาร์ม เรียงใหม่สุดก่อน — แถวสีแดงคือระดับอันตราย</p>
+
+      <div class="toolbar">
+        <div style="display:flex; gap:10px;">
+          <select id="farmFilter" onchange="applyFilters()">
+            <option value="">ทุกฟาร์ม</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn-secondary btn-small category-tab active" data-category="" onclick="setCategory('')">ทั้งหมด</button>
+          <button class="btn-secondary btn-small category-tab" data-category="water" onclick="setCategory('water')">💧 เรื่องน้ำ</button>
+          <button class="btn-secondary btn-small category-tab" data-category="heat" onclick="setCategory('heat')">🌡️ เรื่องความร้อน</button>
+        </div>
+      </div>
+
+      <div id="content" class="loading">กำลังโหลด...</div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="sidebar.js"></script>
+  <style>
+    .category-tab.active { background: var(--primary); color: white; }
+  </style>
+  <script>
+    requireLogin();
+    renderSidebar('logs');
+
+    let currentCategory = '';
+
+    function severityInfo(severity) {
+      const map = {
+        critical: ['pill-danger', '🔴 อันตราย', 'row-attention'],
+        warning: ['pill-warning', '🟡 เตือน', 'row-caution'],
+        info: ['pill-muted', 'ℹ️ ทั่วไป', ''],
+      };
+      return map[severity] || ['pill-muted', severity, ''];
+    }
+
+    function categoryLabel(category) {
+      if (category === 'water') return '💧 น้ำ';
+      if (category === 'heat') return '🌡️ ความร้อน';
+      return '-';
+    }
+
+    async function loadFarmFilterOptions() {
+      try {
+        const { data } = await apiFetch('/admin/farms');
+        const select = document.getElementById('farmFilter');
+        data.forEach((f) => {
+          const opt = document.createElement('option');
+          opt.value = f.farm_id;
+          opt.textContent = f.farm_name;
+          select.appendChild(opt);
+        });
+      } catch (err) {
+        // filter ใช้ไม่ได้ก็ไม่เป็นไร ตารางหลักยังทำงานปกติ
+      }
+    }
+
+    function setCategory(category) {
+      currentCategory = category;
+      document.querySelectorAll('.category-tab').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.category === category);
+      });
+      applyFilters();
+    }
+
+    function applyFilters() {
+      load();
+    }
+
+    async function load() {
+      const content = document.getElementById('content');
+      const farmId = document.getElementById('farmFilter').value;
+
+      const params = new URLSearchParams({ limit: '200' });
+      if (farmId) params.set('farmId', farmId);
+      if (currentCategory) params.set('category', currentCategory);
+
+      try {
+        const { data } = await apiFetch(`/admin/notifications?${params.toString()}`);
+
+        if (data.length === 0) {
+          content.innerHTML = '<div class="empty">ไม่พบการแจ้งเตือนที่ตรงเงื่อนไข</div>';
+          return;
+        }
+
+        const rows = data
+          .map((n) => {
+            const [cls, label, rowClass] = severityInfo(n.severity);
+            return `
+          <tr class="${rowClass}">
+            <td>${formatThaiDateTime(n.created_at)}</td>
+            <td>${escapeHtml(n.farms?.farm_name || '-')}</td>
+            <td>${categoryLabel(n.category)}</td>
+            <td><span class="pill ${cls}">${label}</span></td>
+            <td>${escapeHtml(n.title)}</td>
+            <td>${escapeHtml(n.message)}</td>
+            <td>${n.is_read ? 'อ่านแล้ว' : '<strong>🔵 ยังไม่อ่าน</strong>'}</td>
+          </tr>
+        `;
+          })
+          .join('');
+
+        content.innerHTML = `
+          <div class="card">
+            <table>
+              <thead>
+                <tr><th>เวลา</th><th>ฟาร์ม</th><th>หมวด</th><th>ระดับ</th><th>หัวข้อ</th><th>ข้อความ</th><th>สถานะ</th></tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        `;
+      } catch (err) {
+        content.innerHTML = `<div class="empty">โหลดข้อมูลไม่สำเร็จ: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    loadFarmFilterOptions();
+    load();
+  </script>
+</body>
+</html>

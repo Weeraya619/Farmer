@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>อุปกรณ์ทั้งหมด — เว็บแอดมิน</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main">
+      <h1>อุปกรณ์ทั้งหมด</h1>
+      <p class="page-subtitle">อุปกรณ์เซนเซอร์จากทุกฟาร์มในระบบ — แถวสีเหลือง/แดงคืออุปกรณ์ที่รอเชื่อมต่อ เงียบ (ไม่ส่งข้อมูล) หรือมีปัญหา</p>
+
+      <div class="toolbar">
+        <div style="display:flex; gap:10px;">
+          <select id="farmFilter" onchange="applyFilters()">
+            <option value="">ทุกฟาร์ม</option>
+          </select>
+          <select id="statusFilter" onchange="applyFilters()">
+            <option value="">ทุกสถานะ</option>
+            <option value="silent">🔕 เงียบ (ไม่ส่งข้อมูล)</option>
+            <option value="active">เชื่อมต่อแล้ว</option>
+            <option value="pending">รอเชื่อมต่อ</option>
+            <option value="inactive">ปิดใช้งาน</option>
+            <option value="maintenance">ซ่อมบำรุง</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="content" class="loading">กำลังโหลด...</div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="sidebar.js"></script>
+  <script>
+    requireLogin();
+    renderSidebar('devices');
+
+    let allDevices = [];
+
+    // d = แถวอุปกรณ์จาก /admin/devices (มี connection_state / silent_for_minutes จาก backend)
+    function statusInfo(d) {
+      // status ในตารางเป็น 'active' แต่ไม่ส่งข้อมูลเกินเกณฑ์ => แสดงเป็น "เงียบ"
+      if (d.status === 'active' && d.connection_state === 'silent') {
+        return ['pill-danger', `🔕 เงียบ ${formatSilentMinutes(d.silent_for_minutes)}`, 'row-attention'];
+      }
+      const map = {
+        active: ['pill-success', '✅ เชื่อมต่อแล้ว', ''],
+        pending: ['pill-warning', '⏳ รอเชื่อมต่อ', 'row-caution'],
+        inactive: ['pill-muted', '⛔ ปิดใช้งาน', ''],
+        maintenance: ['pill-danger', '🔧 ซ่อมบำรุง', 'row-attention'],
+      };
+      return map[d.status] || ['pill-muted', 'ไม่ทราบสถานะ', ''];
+    }
+
+    async function loadFarmFilterOptions() {
+      try {
+        const { data } = await apiFetch('/admin/farms');
+        const select = document.getElementById('farmFilter');
+        data.forEach((f) => {
+          const opt = document.createElement('option');
+          opt.value = f.farm_id;
+          opt.textContent = f.farm_name;
+          select.appendChild(opt);
+        });
+      } catch (err) {
+        // filter ใช้ไม่ได้ก็ไม่เป็นไร ตารางหลักยังทำงานปกติ
+      }
+    }
+
+    function applyFilters() {
+      const farmId = document.getElementById('farmFilter').value;
+      const status = document.getElementById('statusFilter').value;
+      const filtered = allDevices.filter((d) => {
+        if (farmId && d.farm_id !== farmId) return false;
+        if (status === 'silent') return d.connection_state === 'silent';
+        if (status && d.status !== status) return false;
+        return true;
+      });
+      renderTable(filtered);
+    }
+
+    function renderTable(devices) {
+      const content = document.getElementById('content');
+
+      if (devices.length === 0) {
+        content.innerHTML = '<div class="empty">ไม่พบอุปกรณ์ที่ตรงเงื่อนไข</div>';
+        return;
+      }
+
+      // หมายเหตุ: onclick ส่งเฉพาะ device_id (UUID ที่เซิร์ฟเวอร์สร้าง) ไม่ใส่ชื่อ
+      // เพราะชื่ออุปกรณ์เกษตรกรตั้งเอง ถ้าใส่ลงใน onclick จะเปิดช่องโจมตี (XSS) ได้
+      const rows = devices
+        .map((d) => {
+          const [cls, label, rowClass] = statusInfo(d);
+          const hasError = d.last_error && d.status !== 'maintenance';
+          const previousMac = d.previous_mac_address
+            ? `<div style="font-family: 'Prompt', 'Segoe UI', sans-serif; font-size: 11px; color: var(--text-muted); margin-top: 4px;">เดิม: ${escapeHtml(d.previous_mac_address)}<br>เปลี่ยนเมื่อ ${formatThaiDateTime(d.mac_replaced_at)}</div>`
+            : '';
+          // อุปกรณ์ที่ยังไม่เคย pair ไม่มี secret ตั้งเป็น "เชื่อมต่อแล้ว" ด้วยมือไม่ได้ผล จึงไม่แสดงตัวเลือกนี้
+          const activeOption = d.is_paired ? '<option value="active">✅ เชื่อมต่อแล้ว</option>' : '';
+          return `
+          <tr class="${rowClass || (hasError ? 'row-attention' : '')}">
+            <td>${escapeHtml(d.name)}</td>
+            <td>${escapeHtml(d.farms?.farm_name || '-')}</td>
+            <td>${d.owner ? `${escapeHtml(d.owner.username)}<br><a href="mailto:${escapeHtml(d.owner.email)}" style="font-size:12px;">${escapeHtml(d.owner.email)}</a>` : '<span style="color:var(--text-muted);">ไม่พบเจ้าของ</span>'}</td>
+            <td>${escapeHtml((d.sensors || []).join(', '))}</td>
+            <td style="font-family: monospace; font-size: 13px;">${escapeHtml(d.mac_address || '-')}${previousMac}</td>
+            <td><span class="pill ${cls}">${label}</span></td>
+            <td>${formatThaiDateTime(d.paired_at)}</td>
+            <td>${formatThaiDateTime(d.last_seen_at)}</td>
+            <td>${d.last_error ? '⚠️ ' + escapeHtml(d.last_error) : '-'}</td>
+            <td class="col-actions">
+              <div class="btn-row">
+                <button class="btn-secondary btn-small" onclick="viewLatest('${d.device_id}')">📊 ดูค่าล่าสุด</button>
+                <select onchange="updateStatus('${d.device_id}', this.value)">
+                  <option value="">เปลี่ยนสถานะ...</option>
+                  ${activeOption}
+                  <option value="inactive">⛔ ปิดใช้งาน</option>
+                  <option value="maintenance">🔧 ซ่อมบำรุง</option>
+                </select>
+                <button class="btn-danger btn-small" onclick="resetDevice('${d.device_id}')">♻️ รีเซ็ต</button>
+              </div>
+            </td>
+          </tr>
+        `;
+        })
+        .join('');
+
+      content.innerHTML = `
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>ชื่ออุปกรณ์</th><th>ฟาร์ม</th><th>เจ้าของฟาร์ม</th><th>เซนเซอร์</th><th>MAC Address</th><th>สถานะ</th><th>จับคู่เมื่อ</th><th>ข้อมูลล่าสุด</th><th>ข้อผิดพลาดล่าสุด</th><th>จัดการ</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function deviceName(deviceId) {
+      return allDevices.find((d) => d.device_id === deviceId)?.name || deviceId;
+    }
+
+    async function load() {
+      const content = document.getElementById('content');
+      try {
+        const { data } = await apiFetch('/admin/devices');
+        allDevices = data;
+
+        if (data.length === 0) {
+          content.innerHTML = '<div class="empty">ยังไม่มีอุปกรณ์ลงทะเบียนในระบบ</div>';
+          return;
+        }
+
+        applyFilters();
+      } catch (err) {
+        content.innerHTML = `<div class="empty">โหลดข้อมูลไม่สำเร็จ: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function updateStatus(deviceId, status) {
+      if (!status) return;
+      try {
+        await apiFetch(`/admin/devices/${deviceId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status }),
+        });
+        load();
+      } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+      }
+    }
+
+    async function resetDevice(deviceId) {
+      const name = deviceName(deviceId);
+      if (!confirm(`รีเซ็ตอุปกรณ์ "${name}"? อุปกรณ์จะต้องจับคู่ (pair) ใหม่อีกครั้งก่อนใช้งานได้ — ใช้กรณี secret หายหรือ factory reset ESP32`)) return;
+      try {
+        await apiFetch(`/admin/devices/${deviceId}/reset`, { method: 'POST' });
+        alert('รีเซ็ตสำเร็จ อุปกรณ์กลับเป็นสถานะ "รอเชื่อมต่อ" แล้ว');
+        load();
+      } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+      }
+    }
+
+    async function viewLatest(deviceId) {
+      const name = deviceName(deviceId);
+      try {
+        const { data } = await apiFetch(`/admin/devices/${deviceId}/latest-sensor-data`);
+        if (!data) {
+          alert(`"${name}" — ยังไม่มีข้อมูล sensor เข้ามาเลย`);
+          return;
+        }
+        const lines = [
+          `อุปกรณ์: ${name}`,
+          `เวลา: ${formatThaiDateTime(data.sensor_timestamp)}`,
+          data.air_temperature != null ? `อุณหภูมิ: ${data.air_temperature} °C` : null,
+          data.humidity != null ? `ความชื้น: ${data.humidity} %` : null,
+          data.thi != null ? `THI: ${data.thi.toFixed ? data.thi.toFixed(1) : data.thi}` : null,
+          data.tds != null ? `TDS: ${data.tds} mg/L` : null,
+          data.turbidity != null ? `Turbidity: ${data.turbidity} NTU` : null,
+        ].filter(Boolean);
+        alert(lines.join('\n'));
+      } catch (err) {
+        alert('เกิดข้อผิดพลาด: ' + err.message);
+      }
+    }
+
+    loadFarmFilterOptions();
+    load();
+  </script>
+</body>
+</html>

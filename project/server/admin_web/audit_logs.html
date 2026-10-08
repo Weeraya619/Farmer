@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Log แอดมิน — เว็บแอดมิน</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="app-shell">
+        <div class="sidebar" id="sidebar"></div>
+        <div class="main">
+            <h1>Audit Log แอดมิน</h1>
+            <p class="page-subtitle">ประวัติการกระทำของแอดมินทุกคนในระบบ เรียงใหม่สุดก่อน — ใครแก้อะไร เมื่อไหร่</p>
+            <div id="content" class="loading">กำลังโหลด...</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="sidebar.js"></script>
+    <script>
+        requireLogin();
+        renderSidebar('audit');
+
+        const actionLabels = {
+            disable_user: '⛔ ระงับบัญชีผู้ใช้',
+            enable_user: '✅ ปลดระงับบัญชีผู้ใช้',
+            delete_user: '🗑️ ลบบัญชีผู้ใช้',
+            update_device_status: '🔧 เปลี่ยนสถานะอุปกรณ์',
+            reset_device: '♻️ รีเซ็ตอุปกรณ์',
+        };
+
+        async function load() {
+            const content = document.getElementById('content');
+            try {
+                const { data } = await apiFetch('/admin/audit-log?limit=300');
+
+                if (data.length === 0) {
+                    content.innerHTML = '<div class="empty">ยังไม่มีการกระทำใดๆ ที่บันทึกไว้</div>';
+                    return;
+                }
+
+                const rows = data
+                    .map(
+                        (log) => `
+        <tr>
+            <td>${formatThaiDateTime(log.created_at)}</td>
+            <td>${escapeHtml(log.users?.username || 'ไม่ทราบ')}<br><span style="color:var(--text-muted); font-size:12px;">${escapeHtml(log.users?.email || '-')}</span></td>
+            <td>${actionLabels[log.action] || escapeHtml(log.action)}</td>
+            <td>${escapeHtml(log.target_type)}</td>
+            <td>${escapeHtml(log.details || '-')}</td>
+        </tr>
+        `
+                    )
+                    .join('');
+
+                content.innerHTML = `
+        <div class="card">
+            <table>
+            <thead>
+                <tr><th>เวลา</th><th>แอดมิน</th><th>การกระทำ</th><th>ประเภทเป้าหมาย</th><th>รายละเอียด</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            </table>
+        </div>
+        `;
+            } catch (err) {
+                content.innerHTML = `<div class="empty">โหลดข้อมูลไม่สำเร็จ: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        load();
+    </script>
+</body>
+
+</html>

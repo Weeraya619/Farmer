@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ภาพรวม — เว็บแอดมิน</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="main">
+      <h1>ภาพรวมระบบ</h1>
+      <p class="page-subtitle">สรุปตัวเลขสำคัญของทั้งระบบ ณ ตอนนี้ — กดที่การ์ดด้านล่างเพื่อไปดูรายละเอียดแต่ละส่วน</p>
+      <div id="content" class="loading">กำลังโหลด...</div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="sidebar.js"></script>
+  <script>
+    requireLogin();
+    renderSidebar('overview');
+
+    async function load() {
+      const content = document.getElementById('content');
+      try {
+        const { data } = await apiFetch('/admin/overview');
+
+        const silentSection = data.silentDevices.length
+          ? `
+          <div class="section-label">⚠️ ต้องรีบดู</div>
+          <div class="card" style="margin-bottom: 24px;">
+            <table>
+              <thead><tr><th>อุปกรณ์</th><th>ฟาร์ม</th><th>ข้อมูลล่าสุด</th><th>เงียบมาแล้ว</th></tr></thead>
+              <tbody>
+                ${data.silentDevices
+                  .map(
+                    (d) => `
+                  <tr class="row-attention">
+                    <td>${escapeHtml(d.name)}</td>
+                    <td>${escapeHtml(d.farmName || '-')}</td>
+                    <td>${d.lastSeenAt ? formatThaiDateTime(d.lastSeenAt) : 'ไม่เคยส่งข้อมูลเลย'}</td>
+                    <td>${escapeHtml(formatSilentMinutes(d.silentForMinutes) || '-')}</td>
+                  </tr>
+                `
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+          </div>
+          <p class="page-subtitle" style="margin-top:-16px;">อุปกรณ์เหล่านี้สถานะ "เชื่อมต่อแล้ว" แต่ไม่ส่งข้อมูลเกินเกณฑ์ที่ตั้งไว้ (ปกติ ESP32 ส่งข้อมูลทุก 1 ชั่วโมง) — ไปดูรายละเอียดที่ <a href="/admin/devices.html">หน้าอุปกรณ์</a></p>
+        `
+          : '';
+
+        content.innerHTML = `
+          ${silentSection}
+          <div class="stat-grid">
+            <div class="stat-card"><div class="value">👤 ${data.userCount}</div><div class="label">ผู้ใช้ทั้งหมด</div></div>
+            <div class="stat-card"><div class="value">🏡 ${data.farmCount}</div><div class="label">ฟาร์มทั้งหมด</div></div>
+            <div class="stat-card"><div class="value">📡 ${data.deviceCount}</div><div class="label">อุปกรณ์ทั้งหมด</div></div>
+            <div class="stat-card"><div class="value">✅ ${data.activeDeviceCount}</div><div class="label">อุปกรณ์ที่เชื่อมต่อแล้ว</div></div>
+            <div class="stat-card"><div class="value">🔔 ${data.unreadNotificationCount}</div><div class="label">แจ้งเตือนยังไม่อ่าน (ทุกฟาร์ม)</div></div>
+          </div>
+
+          <div class="section-label">ไปยังส่วนต่างๆ</div>
+          <div class="quick-links">
+            <a class="quick-link-card" href="/admin/users.html">
+              <div class="icon">👤</div>
+              <div class="title">จัดการผู้ใช้</div>
+              <div class="desc">ดูรายชื่อผู้ใช้ทั้งหมด ระงับ ปลดระงับ หรือลบบัญชี</div>
+            </a>
+            <a class="quick-link-card" href="/admin/devices.html">
+              <div class="icon">📡</div>
+              <div class="title">อุปกรณ์ทั้งหมด</div>
+              <div class="desc">ดูอุปกรณ์เซนเซอร์ทุกฟาร์ม เช็คว่าตัวไหนขาดการเชื่อมต่อหรือมีปัญหา</div>
+            </a>
+            <a class="quick-link-card" href="/admin/logs.html">
+              <div class="icon">🔔</div>
+              <div class="title">Log การแจ้งเตือน</div>
+              <div class="desc">ดูประวัติแจ้งเตือนทั้งหมด แยกตามฟาร์มและหมวดหมู่ (น้ำ/ความร้อน)</div>
+            </a>
+            <a class="quick-link-card" href="/admin/audit_logs.html">
+              <div class="icon">📝</div>
+              <div class="title">Audit Log แอดมิน</div>
+              <div class="desc">ดูว่าแอดมินคนไหนทำอะไรไปบ้าง เมื่อไหร่</div>
+            </a>
+          </div>
+        `;
+      } catch (err) {
+        content.innerHTML = `<div class="empty">โหลดข้อมูลไม่สำเร็จ: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
