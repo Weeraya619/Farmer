@@ -7,6 +7,7 @@ import '/pages/notification.dart';
 /// Header ที่ใช้ซ้ำทุกหน้า
 /// ใส่ farmId เข้ามาแล้วปุ่มกระดิ่งจะพาไปหน้าแจ้งเตือนของฟาร์มนั้นเองอัตโนมัติ
 /// ไม่ต้องเขียน onBellTap ซ้ำทุกหน้า (ถ้าไม่ส่ง farmId มา ปุ่มจะไม่ทำงาน — ใช้ตอนยังไม่รู้ farmId เช่นหน้า login)
+/// ปุ่มลูกศรย้อนกลับจะขึ้นอัตโนมัติเมื่อหน้านั้นย้อนกลับได้ (หน้าแรกสุดจะไม่มี)
 /// ใช้แบบ: AppHeader(farmName: 'วุฒิพงศ์ฟาร์ม', farmId: farmId)
 class AppHeader extends StatefulWidget implements PreferredSizeWidget {
   final String farmName;
@@ -59,6 +60,8 @@ class _AppHeaderState extends State<AppHeader> {
 
   @override
   Widget build(BuildContext context) {
+    final canGoBack = Navigator.of(context).canPop();
+
     return Container(
       height: widget.preferredSize.height,
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -67,6 +70,17 @@ class _AppHeaderState extends State<AppHeader> {
         bottom: false,
         child: Row(
           children: [
+            if (canGoBack) ...[
+              // maybePop (ไม่ใช่ pop) เพื่อให้หน้าที่ดักการออก เช่นหน้าซื้อวัว ยังเด้งเตือนก่อนออกได้
+              IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                tooltip: 'ย้อนกลับ',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+              ),
+              const SizedBox(width: 4),
+            ],
             CircleAvatar(
               radius: 18,
               backgroundColor: AppColors.primaryLight,

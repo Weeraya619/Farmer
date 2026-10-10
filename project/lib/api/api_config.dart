@@ -3,7 +3,7 @@
 class ApiConfig {
   ApiConfig._();
 
-  static const String baseUrl = 'http://localhost:3000/api';
+  static const String baseUrl = 'https://farmer-production-6b65.up.railway.app/api';
 
   // เวลาทดสอบบน emulator/มือถือจริงในวง LAN เดียวกัน localhost จะใช้ไม่ได้
   // ต้องเปลี่ยนเป็น IP เครื่องที่รัน backend เช่น 'http://192.168.1.xx:3000/api'
