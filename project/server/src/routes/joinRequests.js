@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../supabaseClient.js';
 import { requireAuth } from '../middleware/requireAuth.js';
-import { getFarmAccess } from '../utils/farmAccess.js';
+import { getFarmAccess } from '../utils/farmaccess.js';
 
 const router = Router();
 

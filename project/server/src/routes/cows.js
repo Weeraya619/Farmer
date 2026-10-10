@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../supabaseClient.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireFarmMember } from '../middleware/requireFarmMember.js';
 import { requirePermission } from '../middleware/requirePermission.js';
-import { getFarmAccess } from '../utils/farmAccess.js';
+import { getFarmAccess } from '../utils/farmaccess.js';
 
 const router = Router();
 
