@@ -10,6 +10,8 @@ import cowRoutes from './routes/cows.js';
 import deviceRoutes from './routes/devices.js';
 import notificationRoutes from './routes/notifications.js';
 import adminRoutes from './routes/admin.js';
+import farmMemberRoutes from './routes/farmMembers.js';
+import joinRequestRoutes from './routes/joinRequests.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -29,6 +31,8 @@ app.use('/api', cowRoutes);
 app.use('/api', deviceRoutes);
 app.use('/api', notificationRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api', farmMemberRoutes);
+app.use('/api', joinRequestRoutes);
 
 // เว็บแอดมิน — ไฟล์ HTML/CSS/JS ธรรมดา ไม่มี build step เข้าผ่าน http://localhost:3000/admin
 app.use('/admin', express.static(path.join(__dirname, '../admin_web')));

@@ -5,6 +5,8 @@ import { requireAuth } from '../middleware/requireAuth.js';
 const router = Router();
 
 // GET /api/farms/me — ฟาร์มทั้งหมดที่ user คนนี้เป็นสมาชิก
+// แต่ละฟาร์มมี role ('owner' | 'worker'), isPrimaryOwner (เป็นคนสร้างฟาร์มไหม)
+// และสวิตช์ worker_* (Flutter ใช้ทำปุ่มจาง) ติดมากับ farms(*) อยู่แล้ว
 router.get('/me', requireAuth, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from('farm_members')
@@ -16,11 +18,15 @@ router.get('/me', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'ไม่สามารถโหลดข้อมูลฟาร์มได้' });
   }
 
-  const farms = data.map((row) => ({ ...row.farms, role: row.role }));
+  const farms = data.map((row) => ({
+    ...row.farms,
+    role: row.role,
+    isPrimaryOwner: row.role === 'owner' && row.farms?.created_by === req.userId,
+  }));
   res.json({ data: farms });
 });
 
-// POST /api/farms — สร้างฟาร์มใหม่ ผู้สร้างกลายเป็น owner อัตโนมัติ
+// POST /api/farms — สร้างฟาร์มใหม่ ผู้สร้างกลายเป็น owner หลักอัตโนมัติ
 router.post('/', requireAuth, async (req, res) => {
   const { farmName } = req.body;
 
@@ -30,7 +36,7 @@ router.post('/', requireAuth, async (req, res) => {
 
   const { data: farm, error: farmError } = await supabaseAdmin
     .from('farms')
-    .insert({ farm_name: farmName.trim() })
+    .insert({ farm_name: farmName.trim(), created_by: req.userId })
     .select()
     .single();
 
@@ -50,7 +56,7 @@ router.post('/', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'สร้างฟาร์มไม่สำเร็จ' });
   }
 
-  res.json({ data: { ...farm, role: 'owner' } });
+  res.json({ data: { ...farm, role: 'owner', isPrimaryOwner: true } });
 });
 
 export default router;

@@ -2,11 +2,23 @@ import { Router } from 'express';
 import { supabaseAdmin } from '../supabaseClient.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireFarmMember } from '../middleware/requireFarmMember.js';
+import { requirePermission } from '../middleware/requirePermission.js';
+import { getFarmAccess } from '../utils/farmAccess.js';
 
 const router = Router();
 
+const NO_FINANCE = 'ไม่มีสิทธิ์เข้าถึงข้อมูลการเงินของฟาร์มนี้';
+
+// ช่อง cowPurchase / cowSale คือรายการซื้อ-ขายวัว ต้องผ่านสวิตช์ซื้อ/ขายด้วย
+// (กัน worker ที่เปิดแค่การเงินแต่ปิดซื้อ/ขาย มาบันทึกซื้อ-ขายวัวผ่าน endpoint การเงินตรงๆ)
+function cowMoneyDenied(perms, body) {
+    if (body.cowPurchase && !perms.canBuyCow) return 'ไม่มีสิทธิ์บันทึกการซื้อวัว';
+    if (body.cowSale && !perms.canSellCow) return 'ไม่มีสิทธิ์บันทึกการขายวัว';
+    return null;
+}
+
 // GET /api/farms/:farmId/finances?from=&to=
-router.get('/farms/:farmId/finances', requireAuth, requireFarmMember(), async (req, res) => {
+router.get('/farms/:farmId/finances', requireAuth, requireFarmMember(), requirePermission('canFinance', NO_FINANCE), async (req, res) => {
     const { farmId } = req.params;
     const { from, to } = req.query;
 
@@ -31,7 +43,7 @@ router.get('/farms/:farmId/finances', requireAuth, requireFarmMember(), async (r
 
 // POST /api/farms/:farmId/finance-entries — บันทึกหลายรายการทีเดียว (ปุ่ม + เพิ่มรายการ)
 // body: { recordDate, category: 'feed' | 'medicine', entries: [{ note, amount }, ...] }
-router.post('/farms/:farmId/finance-entries', requireAuth, requireFarmMember(), async (req, res) => {
+router.post('/farms/:farmId/finance-entries', requireAuth, requireFarmMember(), requirePermission('canFinance', NO_FINANCE), async (req, res) => {
     const { farmId } = req.params;
     const { recordDate, category, entries } = req.body;
 
@@ -70,9 +82,12 @@ router.post('/farms/:farmId/finance-entries', requireAuth, requireFarmMember(), 
 });
 
 // POST /api/farms/:farmId/finances
-router.post('/farms/:farmId/finances', requireAuth, requireFarmMember(), async (req, res) => {
+router.post('/farms/:farmId/finances', requireAuth, requireFarmMember(), requirePermission('canFinance', NO_FINANCE), async (req, res) => {
     const { farmId } = req.params;
     const { recordDate, cowPurchase, feed, medicine, cowSale } = req.body;
+
+    const denied = cowMoneyDenied(req.farmPerms, req.body);
+    if (denied) return res.status(403).json({ error: denied });
 
     const { data, error } = await supabaseAdmin
         .from('finances')
@@ -99,7 +114,7 @@ router.post('/farms/:farmId/finances', requireAuth, requireFarmMember(), async (
 router.patch('/finances/:financeId', requireAuth, async (req, res) => {
     const { financeId } = req.params;
 
-    // เช็คสิทธิ์: หา farm_id ของรายการนี้ก่อน แล้วเช็คว่า user เป็นสมาชิกฟาร์มนั้นไหม
+    // หา farm_id ของรายการนี้ก่อน แล้วเช็คสิทธิ์ของ user ในฟาร์มนั้น
     const { data: existing } = await supabaseAdmin
         .from('finances')
         .select('farm_id')
@@ -110,16 +125,15 @@ router.patch('/finances/:financeId', requireAuth, async (req, res) => {
         return res.status(404).json({ error: 'ไม่พบรายการนี้' });
     }
 
-    const { data: membership } = await supabaseAdmin
-        .from('farm_members')
-        .select('role')
-        .eq('farm_id', existing.farm_id)
-        .eq('user_id', req.userId)
-        .maybeSingle();
-
-    if (!membership) {
+    const access = await getFarmAccess(existing.farm_id, req.userId);
+    if (!access) {
         return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขรายการนี้' });
     }
+    if (!access.perms.canFinance) {
+        return res.status(403).json({ error: NO_FINANCE });
+    }
+    const denied = cowMoneyDenied(access.perms, req.body);
+    if (denied) return res.status(403).json({ error: denied });
 
     const { recordDate, cowPurchase, feed, medicine, cowSale } = req.body;
     const updates = {};
@@ -158,15 +172,12 @@ router.delete('/finances/:financeId', requireAuth, async (req, res) => {
         return res.status(404).json({ error: 'ไม่พบรายการนี้' });
     }
 
-    const { data: membership } = await supabaseAdmin
-        .from('farm_members')
-        .select('role')
-        .eq('farm_id', existing.farm_id)
-        .eq('user_id', req.userId)
-        .maybeSingle();
-
-    if (!membership) {
+    const access = await getFarmAccess(existing.farm_id, req.userId);
+    if (!access) {
         return res.status(403).json({ error: 'ไม่มีสิทธิ์ลบรายการนี้' });
+    }
+    if (!access.perms.canFinance) {
+        return res.status(403).json({ error: NO_FINANCE });
     }
 
     const { error } = await supabaseAdmin.from('finances').delete().eq('finance_id', financeId);

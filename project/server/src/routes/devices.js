@@ -4,6 +4,8 @@ import { supabaseAdmin } from '../supabaseClient.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireFarmMember } from '../middleware/requireFarmMember.js';
 import { toDeviceView } from '../utils/deviceHealth.js';
+import { requirePermission } from '../middleware/requirePermission.js';
+import { getFarmAccess } from '../utils/farmAccess.js';
 
 const router = Router();
 
@@ -176,14 +178,9 @@ router.get('/farms/:farmId/devices', requireAuth, requireFarmMember(), async (re
 // body: { macAddress, name }
 // ยังไม่สร้าง secret ตอนนี้ — รอ ESP32 มาขอเองตอน pair ครั้งแรก
 // ไม่ต้องเลือกชุดเซนเซอร์แล้ว — ESP32 จะบอกเองว่ามี sensor อะไรบ้างตอน pair (ดู POST /devices/pair)
-router.post('/farms/:farmId/devices', requireAuth, requireFarmMember(), async (req, res) => {
+router.post('/farms/:farmId/devices', requireAuth, requireFarmMember(), requirePermission('canManageDevices', 'เฉพาะเจ้าของฟาร์มที่ลงทะเบียนอุปกรณ์ได้'), async (req, res) => {
     const { farmId } = req.params;
     const { macAddress, name } = req.body;
-
-    // บทบาทผู้ชม (viewer) ดูได้อย่างเดียว ลงทะเบียนอุปกรณ์ไม่ได้
-    if (req.farmRole === 'viewer') {
-        return res.status(403).json({ error: 'บทบาทผู้ชมไม่มีสิทธิ์จัดการอุปกรณ์' });
-    }
 
     if (!macAddress || !MAC_REGEX.test(macAddress)) {
         return res.status(400).json({ error: 'รูปแบบ MAC address ไม่ถูกต้อง (ตัวอย่าง AA:BB:CC:DD:EE:FF)' });
@@ -233,7 +230,9 @@ router.patch('/devices/:deviceId/replace-mac', requireAuth, async (req, res) => 
     const { newMacAddress } = req.body;
 
     if (!newMacAddress || !MAC_REGEX.test(newMacAddress)) {
-        return res.status(400).json({ error: 'รูปแบบ MAC address ไม่ถูกต้อง (ตัวอย่าง AA:BB:CC:DD:EE:FF)' });
+        return res.status(400).json({
+            error: 'รูปแบบ MAC address ไม่ถูกต้อง (ตัวอย่าง AA:BB:CC:DD:EE:FF)'
+        });
     }
 
     const { data: existing } = await supabaseAdmin
@@ -242,23 +241,31 @@ router.patch('/devices/:deviceId/replace-mac', requireAuth, async (req, res) => 
         .eq('device_id', deviceId)
         .maybeSingle();
 
-    if (!existing) return res.status(404).json({ error: 'ไม่พบอุปกรณ์นี้' });
+    if (!existing) {
+        return res.status(404).json({ error: 'ไม่พบอุปกรณ์นี้' });
+    }
 
-    const { data: membership } = await supabaseAdmin
-        .from('farm_members')
-        .select('role')
-        .eq('farm_id', existing.farm_id)
-        .eq('user_id', req.userId)
-        .maybeSingle();
+    // ตรวจสอบสิทธิ์ผ่าน getFarmAccess
+    const access = await getFarmAccess(existing.farm_id, req.userId);
 
-    if (!membership) return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขอุปกรณ์นี้' });
-    if (membership.role === 'viewer') {
-        return res.status(403).json({ error: 'บทบาทผู้ชมไม่มีสิทธิ์จัดการอุปกรณ์' });
+    if (!access) {
+        return res.status(403).json({
+            error: 'ไม่มีสิทธิ์แก้ไขอุปกรณ์นี้'
+        });
+    }
+
+    if (!access.perms.canManageDevices) {
+        return res.status(403).json({
+            error: 'เฉพาะเจ้าของฟาร์มที่จัดการอุปกรณ์ได้'
+        });
     }
 
     const newMac = newMacAddress.toUpperCase();
+
     if (existing.mac_address && existing.mac_address.toUpperCase() === newMac) {
-        return res.status(400).json({ error: 'MAC address ใหม่ซ้ำกับของเดิม' });
+        return res.status(400).json({
+            error: 'MAC address ใหม่ซ้ำกับของเดิม'
+        });
     }
 
     const { data, error } = await supabaseAdmin
@@ -277,10 +284,16 @@ router.patch('/devices/:deviceId/replace-mac', requireAuth, async (req, res) => 
 
     if (error) {
         if (error.code === '23505') {
-            return res.status(409).json({ error: 'MAC address นี้ถูกใช้กับอุปกรณ์อื่นอยู่แล้ว' });
+            return res.status(409).json({
+                error: 'MAC address นี้ถูกใช้กับอุปกรณ์อื่นอยู่แล้ว'
+            });
         }
+
         console.error('REPLACE MAC ERROR:', error.message);
-        return res.status(500).json({ error: 'เปลี่ยน ESP32 ไม่สำเร็จ' });
+
+        return res.status(500).json({
+            error: 'เปลี่ยน ESP32 ไม่สำเร็จ'
+        });
     }
 
     res.json({ data: toDeviceView(data) });
@@ -296,18 +309,23 @@ router.patch('/devices/:deviceId', requireAuth, async (req, res) => {
         .eq('device_id', deviceId)
         .maybeSingle();
 
-    if (!existing) return res.status(404).json({ error: 'ไม่พบอุปกรณ์นี้' });
+    if (!existing) {
+        return res.status(404).json({ error: 'ไม่พบอุปกรณ์นี้' });
+    }
 
-    const { data: membership } = await supabaseAdmin
-        .from('farm_members')
-        .select('role')
-        .eq('farm_id', existing.farm_id)
-        .eq('user_id', req.userId)
-        .maybeSingle();
+    // ตรวจสอบสิทธิ์ผ่าน getFarmAccess
+    const access = await getFarmAccess(existing.farm_id, req.userId);
 
-    if (!membership) return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขอุปกรณ์นี้' });
-    if (membership.role === 'viewer') {
-        return res.status(403).json({ error: 'บทบาทผู้ชมไม่มีสิทธิ์จัดการอุปกรณ์' });
+    if (!access) {
+        return res.status(403).json({
+            error: 'ไม่มีสิทธิ์แก้ไขอุปกรณ์นี้'
+        });
+    }
+
+    if (!access.perms.canManageDevices) {
+        return res.status(403).json({
+            error: 'เฉพาะเจ้าของฟาร์มที่จัดการอุปกรณ์ได้'
+        });
     }
 
     const { name, status } = req.body;
@@ -315,24 +333,35 @@ router.patch('/devices/:deviceId', requireAuth, async (req, res) => {
 
     if (name !== undefined) {
         if (typeof name !== 'string' || !name.trim()) {
-            return res.status(400).json({ error: 'ชื่ออุปกรณ์ไม่ถูกต้อง' });
+            return res.status(400).json({
+                error: 'ชื่ออุปกรณ์ไม่ถูกต้อง'
+            });
         }
+
         updates.name = name.trim();
     }
 
     if (status !== undefined) {
         if (!SETTABLE_STATUSES.includes(status)) {
-            return res.status(400).json({ error: 'สถานะไม่ถูกต้อง (active / inactive / maintenance)' });
+            return res.status(400).json({
+                error: 'สถานะไม่ถูกต้อง (active / inactive / maintenance)'
+            });
         }
+
         // อุปกรณ์ที่ยังไม่เคย pair ไม่มี secret จึงตั้งเป็น active ไม่ได้
         if (status === 'active' && !existing.device_secret_hash) {
-            return res.status(400).json({ error: 'อุปกรณ์ยังไม่ได้เชื่อมต่อ (pair) จึงตั้งเป็นใช้งานไม่ได้' });
+            return res.status(400).json({
+                error: 'อุปกรณ์ยังไม่ได้เชื่อมต่อ (pair) จึงตั้งเป็นใช้งานไม่ได้'
+            });
         }
+
         updates.status = status;
     }
 
     if (Object.keys(updates).length === 0) {
-        return res.status(400).json({ error: 'ไม่มีข้อมูลที่จะแก้ไข' });
+        return res.status(400).json({
+            error: 'ไม่มีข้อมูลที่จะแก้ไข'
+        });
     }
 
     const { data, error } = await supabaseAdmin
@@ -344,7 +373,10 @@ router.patch('/devices/:deviceId', requireAuth, async (req, res) => {
 
     if (error) {
         console.error('UPDATE DEVICE ERROR:', error.message);
-        return res.status(500).json({ error: 'แก้ไขไม่สำเร็จ' });
+
+        return res.status(500).json({
+            error: 'แก้ไขไม่สำเร็จ'
+        });
     }
 
     res.json({ data: toDeviceView(data) });
