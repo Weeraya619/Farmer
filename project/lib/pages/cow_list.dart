@@ -4,12 +4,14 @@ import '/widgets/text.dart';
 import '/widgets/header.dart';
 import '/widgets/card.dart';
 import '/services/cow_service.dart';
+import '/services/farm_permissions.dart';
 
 enum _ViewTab { active, sold }
 
 /// หน้าดูภาพรวมวัวในฟาร์ม — การ์ดสรุปด้านบน + แท็บแยกวัวที่ยังอยู่/ขายแล้ว
 /// วัวที่ยังอยู่ในฟาร์มแยกเป็นล็อต (ตามวันที่ซื้อ) + ส่วนวัวที่มีอยู่แล้ว เรียงใหม่→เก่าทั้งคู่
 /// วัวที่ขายแล้วเรียงตามวันที่ขาย ใหม่→เก่า ไม่แยกล็อต
+/// พนักงานที่ไม่มีสิทธิ์การเงินจะไม่เห็นราคาขาย (backend ตัดฟิลด์ราคาออกอยู่แล้ว)
 class CowListPage extends StatefulWidget {
   final String farmId;
   const CowListPage({super.key, required this.farmId});
@@ -259,6 +261,10 @@ class _CowListPageState extends State<CowListPage> {
     if (_soldCows.isEmpty) {
       return [Padding(padding: const EdgeInsets.symmetric(vertical: 30), child: Center(child: Text('ยังไม่มีวัวที่ขาย', style: AppTextStyles.bodySecondary)))];
     }
+
+    // พนักงานที่ปิดการเงินไม่เห็นราคาขาย (backend ไม่ส่งฟิลด์ sale_price มาให้อยู่แล้ว)
+    final canSeePrice = FarmPermissions.of(widget.farmId).canFinance;
+
     return [
       SectionCard(
         child: Column(
@@ -266,7 +272,12 @@ class _CowListPageState extends State<CowListPage> {
             return ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(_cowRowLabel(cow), style: AppTextStyles.body),
-              subtitle: Text('ขายเมื่อ ${cow['sale_date']} • ${cow['sale_price'] ?? '-'} บาท', style: AppTextStyles.caption),
+              subtitle: Text(
+                canSeePrice
+                    ? 'ขายเมื่อ ${cow['sale_date']} • ${cow['sale_price'] ?? '-'} บาท'
+                    : 'ขายเมื่อ ${cow['sale_date']}',
+                style: AppTextStyles.caption,
+              ),
             );
           }).toList(),
         ),

@@ -4,17 +4,38 @@ import '/widgets/text.dart';
 import '/widgets/header.dart';
 import '/widgets/card.dart';
 import '/services/finance_service.dart';
+import 'package:project/services/farm_permissions.dart';
 
 enum _PeriodType { month, quarter, year }
 
 const _thaiMonths = [
-  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+  'มกราคม',
+  'กุมภาพันธ์',
+  'มีนาคม',
+  'เมษายน',
+  'พฤษภาคม',
+  'มิถุนายน',
+  'กรกฎาคม',
+  'สิงหาคม',
+  'กันยายน',
+  'ตุลาคม',
+  'พฤศจิกายน',
+  'ธันวาคม',
 ];
 
 const _thaiMonthsShort = [
-  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+  'ม.ค.',
+  'ก.พ.',
+  'มี.ค.',
+  'เม.ย.',
+  'พ.ค.',
+  'มิ.ย.',
+  'ก.ค.',
+  'ส.ค.',
+  'ก.ย.',
+  'ต.ค.',
+  'พ.ย.',
+  'ธ.ค.',
 ];
 
 /// หน้าดูสรุปรายรับ-รายจ่าย
@@ -36,13 +57,22 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
   DateTime anchor = DateTime.now();
 
   List<Map<String, dynamic>> entries = [];
-  List<double> monthlyProfit = List.filled(12, 0); // กำไร/ขาดทุนสุทธิ 12 เดือนของปีที่ดูอยู่
+  List<double> monthlyProfit = List.filled(
+    12,
+    0,
+  ); // กำไร/ขาดทุนสุทธิ 12 เดือนของปีที่ดูอยู่
   bool isLoadingList = true;
   bool isLoadingChart = true;
+  bool get _allowed => FarmPermissions.of(widget.farmId).canFinance;
 
   @override
   void initState() {
     super.initState();
+    if (!_allowed) {
+      isLoadingList = false;
+      isLoadingChart = false;
+      return;
+    }
     _loadList();
     _loadChart();
   }
@@ -60,7 +90,10 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
         final end = DateTime(anchor.year, startMonth + 3, 0);
         return DateTimeRange(start: start, end: end);
       case _PeriodType.year:
-        return DateTimeRange(start: DateTime(anchor.year, 1, 1), end: DateTime(anchor.year, 12, 31));
+        return DateTimeRange(
+          start: DateTime(anchor.year, 1, 1),
+          end: DateTime(anchor.year, 12, 31),
+        );
     }
   }
 
@@ -92,7 +125,8 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
       }
     });
     _loadList();
-    if (anchor.year != previousYear) _loadChart(); // ข้ามปี ต้องโหลดกราฟใหม่ด้วย
+    if (anchor.year != previousYear)
+      _loadChart(); // ข้ามปี ต้องโหลดกราฟใหม่ด้วย
   }
 
   Future<void> _loadList() async {
@@ -123,10 +157,13 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
     final profits = List.filled(12, 0.0);
     for (final e in data) {
       final dateStr = '${e['record_date'] ?? ''}';
-      final month = int.tryParse(dateStr.length >= 7 ? dateStr.substring(5, 7) : '');
+      final month = int.tryParse(
+        dateStr.length >= 7 ? dateStr.substring(5, 7) : '',
+      );
       if (month == null || month < 1 || month > 12) continue;
       final income = _num(e['cow_sale']);
-      final expense = _num(e['cow_purchase']) + _num(e['feed']) + _num(e['medicine']);
+      final expense =
+          _num(e['cow_purchase']) + _num(e['feed']) + _num(e['medicine']);
       profits[month - 1] += income - expense;
     }
 
@@ -140,10 +177,30 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final totalIncome = entries.fold<double>(0, (sum, e) => sum + _num(e['cow_sale']));
+    if (!_allowed) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppHeader(farmName: 'ดูรายรับ-รายจ่าย', farmId: widget.farmId),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'เจ้าของฟาร์มยังไม่เปิดสิทธิ์ดูข้อมูลการเงินให้พนักงาน',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.bodySecondary,
+            ),
+          ),
+        ),
+      );
+    }
+    final totalIncome = entries.fold<double>(
+      0,
+      (sum, e) => sum + _num(e['cow_sale']),
+    );
     final totalExpense = entries.fold<double>(
       0,
-      (sum, e) => sum + _num(e['cow_purchase']) + _num(e['feed']) + _num(e['medicine']),
+      (sum, e) =>
+          sum + _num(e['cow_purchase']) + _num(e['feed']) + _num(e['medicine']),
     );
     final profit = totalIncome - totalExpense;
 
@@ -160,7 +217,10 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
             children: [
               SectionCard(
                 title: 'กำไร/ขาดทุนรายเดือน ปี ${_chartYear + 543}',
-                child: _MonthlyProfitChart(values: monthlyProfit, isLoading: isLoadingChart),
+                child: _MonthlyProfitChart(
+                  values: monthlyProfit,
+                  isLoading: isLoadingChart,
+                ),
               ),
               const SizedBox(height: 4),
               _periodTypeSelector(),
@@ -171,7 +231,10 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
               SizedBox(
                 height: 3,
                 child: isLoadingList
-                    ? const LinearProgressIndicator(minHeight: 3, backgroundColor: Colors.transparent)
+                    ? const LinearProgressIndicator(
+                        minHeight: 3,
+                        backgroundColor: Colors.transparent,
+                      )
                     : const SizedBox.shrink(),
               ),
               const SizedBox(height: 8),
@@ -197,13 +260,21 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
               const SizedBox(height: 8),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text('รายการทั้งหมด', style: AppTextStyles.bodySecondary),
+                child: Text(
+                  'รายการทั้งหมด',
+                  style: AppTextStyles.bodySecondary,
+                ),
               ),
               const SizedBox(height: 8),
               if (entries.isEmpty && !isLoadingList)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Center(child: Text('ไม่มีรายการในช่วงนี้', style: AppTextStyles.bodySecondary)),
+                  child: Center(
+                    child: Text(
+                      'ไม่มีรายการในช่วงนี้',
+                      style: AppTextStyles.bodySecondary,
+                    ),
+                  ),
                 )
               else
                 SectionCard(
@@ -245,7 +316,13 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
           color: selected ? AppColors.primary : AppColors.surfaceMuted,
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Text(label, style: AppTextStyles.body.copyWith(color: selected ? Colors.white : AppColors.textSecondary, fontWeight: FontWeight.w600)),
+        child: Text(
+          label,
+          style: AppTextStyles.body.copyWith(
+            color: selected ? Colors.white : AppColors.textSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }
@@ -254,21 +331,36 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        IconButton(onPressed: isLoadingList ? null : () => _shiftPeriod(-1), icon: const Icon(Icons.chevron_left)),
+        IconButton(
+          onPressed: isLoadingList ? null : () => _shiftPeriod(-1),
+          icon: const Icon(Icons.chevron_left),
+        ),
         Text(_periodLabel, style: AppTextStyles.subheading),
-        IconButton(onPressed: isLoadingList ? null : () => _shiftPeriod(1), icon: const Icon(Icons.chevron_right)),
+        IconButton(
+          onPressed: isLoadingList ? null : () => _shiftPeriod(1),
+          icon: const Icon(Icons.chevron_right),
+        ),
       ],
     );
   }
 
-  Widget _summaryRow(String label, double amount, Color color, {bool bold = false}) {
+  Widget _summaryRow(
+    String label,
+    double amount,
+    Color color, {
+    bool bold = false,
+  }) {
     return Row(
       children: [
-        Text(label, style: bold ? AppTextStyles.subheading : AppTextStyles.body),
+        Text(
+          label,
+          style: bold ? AppTextStyles.subheading : AppTextStyles.body,
+        ),
         const Spacer(),
         Text(
           '${amount.toStringAsFixed(0)} บาท',
-          style: (bold ? AppTextStyles.subheading : AppTextStyles.body).copyWith(color: color, fontWeight: FontWeight.w600),
+          style: (bold ? AppTextStyles.subheading : AppTextStyles.body)
+              .copyWith(color: color, fontWeight: FontWeight.w600),
         ),
       ],
     );
@@ -288,11 +380,15 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
       amount = _num(entry['cow_purchase']);
       color = AppColors.danger;
     } else if (_num(entry['feed']) > 0) {
-      label = entry['note'] != null && entry['note'] != '' ? entry['note'] : 'ค่าอาหาร';
+      label = entry['note'] != null && entry['note'] != ''
+          ? entry['note']
+          : 'ค่าอาหาร';
       amount = _num(entry['feed']);
       color = AppColors.danger;
     } else {
-      label = entry['note'] != null && entry['note'] != '' ? entry['note'] : 'ค่ายา';
+      label = entry['note'] != null && entry['note'] != ''
+          ? entry['note']
+          : 'ค่ายา';
       amount = _num(entry['medicine']);
       color = AppColors.danger;
     }
@@ -306,13 +402,19 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label, style: AppTextStyles.body),
-                Text('${entry['record_date'] ?? '-'}', style: AppTextStyles.caption),
+                Text(
+                  '${entry['record_date'] ?? '-'}',
+                  style: AppTextStyles.caption,
+                ),
               ],
             ),
           ),
           Text(
             '${color == AppColors.success ? '+' : '-'}${amount.toStringAsFixed(0)} บาท',
-            style: AppTextStyles.body.copyWith(color: color, fontWeight: FontWeight.w600),
+            style: AppTextStyles.body.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -330,7 +432,9 @@ class _MonthlyProfitChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxAbs = values.map((v) => v.abs()).fold<double>(0, (a, b) => a > b ? a : b);
+    final maxAbs = values
+        .map((v) => v.abs())
+        .fold<double>(0, (a, b) => a > b ? a : b);
     const chartHeight = 140.0;
     const dividerHeight = 1.0;
     const halfHeight = (chartHeight - dividerHeight) / 2;
@@ -347,7 +451,9 @@ class _MonthlyProfitChart extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: List.generate(12, (i) {
                   final value = values[i];
-                  final barHeight = maxAbs == 0 ? 0.0 : (value.abs() / maxAbs) * (halfHeight - 4);
+                  final barHeight = maxAbs == 0
+                      ? 0.0
+                      : (value.abs() / maxAbs) * (halfHeight - 4);
                   final isProfit = value >= 0;
                   return Expanded(
                     child: Column(
@@ -362,12 +468,17 @@ class _MonthlyProfitChart extends StatelessWidget {
                               margin: const EdgeInsets.symmetric(horizontal: 2),
                               decoration: BoxDecoration(
                                 color: AppColors.success,
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(3),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                        Container(height: dividerHeight, color: AppColors.border),
+                        Container(
+                          height: dividerHeight,
+                          color: AppColors.border,
+                        ),
                         SizedBox(
                           height: halfHeight,
                           child: Align(
@@ -377,7 +488,9 @@ class _MonthlyProfitChart extends StatelessWidget {
                               margin: const EdgeInsets.symmetric(horizontal: 2),
                               decoration: BoxDecoration(
                                 color: AppColors.danger,
-                                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(3)),
+                                borderRadius: const BorderRadius.vertical(
+                                  bottom: Radius.circular(3),
+                                ),
                               ),
                             ),
                           ),
@@ -395,7 +508,10 @@ class _MonthlyProfitChart extends StatelessWidget {
                   child: Text(
                     _thaiMonthsShort[i],
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: AppColors.textMuted,
+                    ),
                   ),
                 );
               }),

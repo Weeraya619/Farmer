@@ -13,10 +13,19 @@ class AppHeader extends StatefulWidget implements PreferredSizeWidget {
   final String farmName;
   final String? farmId;
 
+  /// ความสูงของเนื้อหาจริง (ไม่รวม status bar) — เท่ากับ bottom nav
+  static const double contentHeight = 64;
+
   const AppHeader({super.key, required this.farmName, this.farmId});
 
+  /// ความสูงรวมที่ Scaffold ต้องจองให้ = เนื้อหา 64 + status bar ด้านบน
+  /// (ถ้าไม่บวก status bar เข้าไป SafeArea จะกินพื้นที่เนื้อหาจนแถบเขียวแคบ)
   @override
-  Size get preferredSize => const Size.fromHeight(64);
+  Size get preferredSize {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final topInset = MediaQueryData.fromView(view).padding.top;
+    return Size.fromHeight(contentHeight + topInset);
+  }
 
   @override
   State<AppHeader> createState() => _AppHeaderState();
@@ -62,50 +71,62 @@ class _AppHeaderState extends State<AppHeader> {
   Widget build(BuildContext context) {
     final canGoBack = Navigator.of(context).canPop();
 
+    // สีพื้นอยู่นอกสุด เพื่อให้สีเขียวคลุมไปถึงใต้ status bar
+    // SafeArea อยู่ถัดมา แล้วค่อยกำหนดความสูง 64 ไว้ข้างใน (เหมือน AppBottomNav)
     return Container(
-      height: widget.preferredSize.height,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
       color: AppColors.primary,
       child: SafeArea(
         bottom: false,
-        child: Row(
-          children: [
-            if (canGoBack) ...[
-              // maybePop (ไม่ใช่ pop) เพื่อให้หน้าที่ดักการออก เช่นหน้าซื้อวัว ยังเด้งเตือนก่อนออกได้
-              IconButton(
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                tooltip: 'ย้อนกลับ',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-              ),
-              const SizedBox(width: 4),
-            ],
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.primaryLight,
-              child: ClipOval(
-                child: Image.asset(
-                  'assets/images/bull.png',
-                  width: 120,
-                  height: 120,
-                  fit: BoxFit.cover,
-                  color: AppColors.primary,
+        child: SizedBox(
+          height: AppHeader.contentHeight,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                if (canGoBack) ...[
+                  // maybePop (ไม่ใช่ pop) เพื่อให้หน้าที่ดักการออก เช่นหน้าซื้อวัว ยังเด้งเตือนก่อนออกได้
+                  IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    tooltip: 'ย้อนกลับ',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 40,
+                      minHeight: 40,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.primaryLight,
+                  child: ClipOval(
+                    child: Image.asset(
+                      'assets/images/bull.png',
+                      width: 120,
+                      height: 120,
+                      fit: BoxFit.cover,
+                      color: AppColors.primary,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                widget.farmName,
-                style: AppTextStyles.subheading.copyWith(
-                  color: AppColors.textOnPrimary,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    widget.farmName,
+                    style: AppTextStyles.subheading.copyWith(
+                      color: AppColors.textOnPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                overflow: TextOverflow.ellipsis,
-              ),
+                _NotificationBell(
+                  count: unreadCount,
+                  onTap: _openNotifications,
+                ),
+              ],
             ),
-            _NotificationBell(count: unreadCount, onTap: _openNotifications),
-          ],
+          ),
         ),
       ),
     );

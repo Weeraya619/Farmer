@@ -51,7 +51,7 @@ function cleanValue(field, value) {
 }
 
 // กันแจ้งเตือนเรื่องเดียวกันซ้ำภายในกี่ชั่วโมง (ESP32 ส่งทุก ~1 ชม. จึงไม่ควรตั้งแค่ 1 ชม.)
-const NOTIFICATION_DEDUPE_HOURS = 6;
+const NOTIFICATION_DEDUPE_HOURS = 0.5;
 
 // reading ที่เก่ากว่านี้ (เช่น ส่งย้อนหลังหลังเน็ตหลุด) จะถูกบันทึก แต่ไม่ใช้ตัดสินแจ้งเตือน/คำนวณ THI
 const ALERT_MAX_AGE_MS = 3 * 60 * 60 * 1000;

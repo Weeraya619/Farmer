@@ -8,6 +8,7 @@ import '/services/device_service.dart';
 import '/widgets/trend_chart.dart';
 import '/services/sensor_service.dart';
 import '/widgets/date_util.dart';
+import '/services/farm_permissions.dart';
 
 /// หน้าติดตามเฝ้าระวังสิ่งแวดล้อมวัว
 /// บนสุด: กราฟแนวโน้มอุณหภูมิ+THI ย้อนหลัง 24 ชั่วโมง
@@ -51,16 +52,23 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
       final t = DateTime.tryParse('${row['sensor_timestamp']}')?.toLocal();
       if (t == null) continue;
       final hourKey = '${t.year}-${t.month}-${t.day}-${t.hour}';
-      byHour.putIfAbsent(hourKey, () => row); // rawHistory เรียงใหม่→เก่าอยู่แล้ว ตัวแรกที่เจอคือใหม่สุดของชั่วโมงนั้น
+      byHour.putIfAbsent(
+        hourKey,
+        () => row,
+      ); // rawHistory เรียงใหม่→เก่าอยู่แล้ว ตัวแรกที่เจอคือใหม่สุดของชั่วโมงนั้น
     }
     final deduped = byHour.values.toList()
-      ..sort((a, b) => '${b['sensor_timestamp']}'.compareTo('${a['sensor_timestamp']}'));
+      ..sort(
+        (a, b) =>
+            '${b['sensor_timestamp']}'.compareTo('${a['sensor_timestamp']}'),
+      );
     final last24 = deduped.take(24).toList();
 
     if (!mounted) return;
     setState(() {
       devices = deviceList;
-      trendHistory = last24.reversed.toList(); // กลับให้เรียงเก่า→ใหม่ สำหรับกราฟ
+      trendHistory = last24.reversed
+          .toList(); // กลับให้เรียงเก่า→ใหม่ สำหรับกราฟ
       isLoading = false;
     });
   }
@@ -84,15 +92,24 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
               children: [
                 TextField(
                   controller: macController,
-                  decoration: const InputDecoration(labelText: 'MAC Address', hintText: 'AA:BB:CC:DD:EE:FF'),
+                  decoration: const InputDecoration(
+                    labelText: 'MAC Address',
+                    hintText: 'AA:BB:CC:DD:EE:FF',
+                  ),
                   textCapitalization: TextCapitalization.characters,
                 ),
                 const SizedBox(height: 4),
-                Text('ดูได้จากสติกเกอร์บนตัวเครื่อง', style: AppTextStyles.caption),
+                Text(
+                  'ดูได้จากสติกเกอร์บนตัวเครื่อง',
+                  style: AppTextStyles.caption,
+                ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: nameController,
-                  decoration: const InputDecoration(labelText: 'ชื่ออุปกรณ์', hintText: 'เช่น เซนเซอร์น้ำ คอกที่ 1'),
+                  decoration: const InputDecoration(
+                    labelText: 'ชื่ออุปกรณ์',
+                    hintText: 'เช่น เซนเซอร์น้ำ คอกที่ 1',
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -101,13 +118,22 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
                 ),
                 if (errorText != null) ...[
                   const SizedBox(height: 8),
-                  Text(errorText!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                  Text(
+                    errorText!,
+                    style: const TextStyle(
+                      color: AppColors.danger,
+                      fontSize: 13,
+                    ),
+                  ),
                 ],
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ยกเลิก')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('ยกเลิก'),
+            ),
             ElevatedButton(
               onPressed: isSaving
                   ? null
@@ -130,8 +156,13 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
                       }
                       if (context.mounted) Navigator.pop(context, true);
                     },
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-              child: Text(isSaving ? 'กำลังบันทึก...' : 'ลงทะเบียน', style: const TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+              ),
+              child: Text(
+                isSaving ? 'กำลังบันทึก...' : 'ลงทะเบียน',
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
           ],
         ),
@@ -144,7 +175,10 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
   Future<void> _showDeviceDetail(Map<String, dynamic> device) async {
     final replaced = await showModalBottomSheet<bool>(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      isScrollControlled: true, // ให้ sheet สูงตามเนื้อหาได้ ไม่ถูกจำกัดที่ ~9/16 ของจอ
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) => _DeviceDetailSheet(device: device),
     );
     if (replaced == true) _load();
@@ -154,12 +188,17 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppHeader(farmName: 'ติดตามเฝ้าระวังสิ่งแวดล้อมวัว', farmId: widget.farmId),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primary,
-        onPressed: _showRegisterDialog,
-        child: const Icon(Icons.add, color: Colors.white),
+      appBar: AppHeader(
+        farmName: 'ติดตามเฝ้าระวังสิ่งแวดล้อมวัว',
+        farmId: widget.farmId,
       ),
+      floatingActionButton: FarmPermissions.of(widget.farmId).canManageDevices
+          ? FloatingActionButton(
+              backgroundColor: AppColors.primary,
+              onPressed: _showRegisterDialog,
+              child: const Icon(Icons.add, color: Colors.white),
+            )
+          : null,
       body: SafeArea(
         child: isLoading
             ? const Center(child: CircularProgressIndicator())
@@ -174,7 +213,10 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
                     const SizedBox(height: 16),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Text('อุปกรณ์ทั้งหมด', style: AppTextStyles.bodySecondary),
+                      child: Text(
+                        'อุปกรณ์ทั้งหมด',
+                        style: AppTextStyles.bodySecondary,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     if (devices.isEmpty)
@@ -183,11 +225,25 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
                         child: Center(
                           child: Column(
                             children: [
-                              const Icon(Icons.sensors_outlined, size: 40, color: AppColors.textMuted),
+                              const Icon(
+                                Icons.sensors_outlined,
+                                size: 40,
+                                color: AppColors.textMuted,
+                              ),
                               const SizedBox(height: 12),
-                              Text('ยังไม่มีอุปกรณ์ที่ลงทะเบียน', style: AppTextStyles.bodySecondary),
+                              Text(
+                                'ยังไม่มีอุปกรณ์ที่ลงทะเบียน',
+                                style: AppTextStyles.bodySecondary,
+                              ),
                               const SizedBox(height: 4),
-                              Text('กดปุ่ม + เพื่อเริ่มลงทะเบียนอุปกรณ์แรก', style: AppTextStyles.caption),
+                              Text(
+                                FarmPermissions.of(
+                                      widget.farmId,
+                                    ).canManageDevices
+                                    ? 'กดปุ่ม + เพื่อเริ่มลงทะเบียนอุปกรณ์แรก'
+                                    : 'ให้เจ้าของฟาร์มเป็นผู้ลงทะเบียนอุปกรณ์',
+                                style: AppTextStyles.caption,
+                              ),
                             ],
                           ),
                         ),
@@ -269,7 +325,11 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
         children: [
           Text(value, style: AppTextStyles.subheading),
           const SizedBox(height: 2),
-          Text(label, style: AppTextStyles.caption, textAlign: TextAlign.center),
+          Text(
+            label,
+            style: AppTextStyles.caption,
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
@@ -300,14 +360,23 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
             CircleAvatar(
               radius: 20,
               backgroundColor: AppColors.primaryLight,
-              child: const Icon(Icons.sensors, color: AppColors.primary, size: 20),
+              child: const Icon(
+                Icons.sensors,
+                color: AppColors.primary,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(device['name'] ?? '-', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                    device['name'] ?? '-',
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 2),
                   Text('เซนเซอร์: $sensors', style: AppTextStyles.caption),
                 ],
@@ -315,7 +384,11 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
             ),
             StatusPill(label: statusLabel, type: statusType),
             const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, size: 18, color: AppColors.textMuted),
+            const Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: AppColors.textMuted,
+            ),
           ],
         ),
       ),
@@ -372,12 +445,18 @@ class _DeviceDetailSheetState extends State<_DeviceDetailSheet> {
               ),
               if (errorText != null) ...[
                 const SizedBox(height: 8),
-                Text(errorText!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                Text(
+                  errorText!,
+                  style: const TextStyle(color: AppColors.danger, fontSize: 13),
+                ),
               ],
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ยกเลิก')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('ยกเลิก'),
+            ),
             ElevatedButton(
               onPressed: () async {
                 setDialogState(() => errorText = null);
@@ -391,8 +470,13 @@ class _DeviceDetailSheetState extends State<_DeviceDetailSheet> {
                 }
                 if (context.mounted) Navigator.pop(context, true);
               },
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-              child: const Text('ยืนยันเปลี่ยน', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+              ),
+              child: const Text(
+                'ยืนยันเปลี่ยน',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         ),
@@ -401,9 +485,14 @@ class _DeviceDetailSheetState extends State<_DeviceDetailSheet> {
 
     if (confirmed == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('เปลี่ยน ESP32 สำเร็จ รอบอร์ดใหม่เชื่อมต่อครั้งแรก')),
+        const SnackBar(
+          content: Text('เปลี่ยน ESP32 สำเร็จ รอบอร์ดใหม่เชื่อมต่อครั้งแรก'),
+        ),
       );
-      Navigator.pop(context, true); // ปิด bottom sheet แล้วบอก parent ให้ reload
+      Navigator.pop(
+        context,
+        true,
+      ); // ปิด bottom sheet แล้วบอก parent ให้ reload
     }
   }
 
@@ -413,48 +502,67 @@ class _DeviceDetailSheetState extends State<_DeviceDetailSheet> {
     final mac = '${device['mac_address'] ?? '-'}';
     final sensors = (device['sensors'] as List?)?.join(', ') ?? '-';
 
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(device['name'] ?? '-', style: AppTextStyles.heading),
-          const SizedBox(height: 16),
-          _detailRow('เซนเซอร์', sensors.isEmpty ? 'ยังไม่ทราบ (รอเชื่อมต่อครั้งแรก)' : sensors),
-          _detailRow('ข้อมูลล่าสุด', formatThaiDateTime(device['last_seen_at'])),
-          _detailRow('เชื่อมต่อเมื่อ', formatThaiDateTime(device['paired_at'])),
-          if (device['last_error'] != null) _detailRow('ข้อผิดพลาดล่าสุด', '${device['last_error']}'),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text('MAC Address', style: AppTextStyles.bodySecondary),
-              const SizedBox(width: 8),
-              Text(
-                showFullMac ? mac : _maskedMac(mac),
-                style: AppTextStyles.body.copyWith(fontFamily: 'monospace'),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => setState(() => showFullMac = !showFullMac),
-                child: Text(showFullMac ? 'ซ่อน' : 'แสดง'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text('แสดงเฉพาะเมื่อจำเป็น เช่น ตอนติดต่อขอความช่วยเหลือทางเทคนิค', style: AppTextStyles.caption),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: OutlinedButton.icon(
-              onPressed: _showReplaceDialog,
-              icon: const Icon(Icons.swap_horiz, size: 18),
-              label: const Text('เปลี่ยน ESP32 (บอร์ดเสีย)'),
+    // SafeArea กันปุ่มล่างสุดโดน system nav bar บัง
+    // SingleChildScrollView กันเนื้อหาล้นจอบนเครื่องจอเล็ก
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(device['name'] ?? '-', style: AppTextStyles.heading),
+            const SizedBox(height: 16),
+            _detailRow(
+              'เซนเซอร์',
+              sensors.isEmpty ? 'ยังไม่ทราบ (รอเชื่อมต่อครั้งแรก)' : sensors,
             ),
-          ),
-          const SizedBox(height: 12),
-        ],
+            _detailRow(
+              'ข้อมูลล่าสุด',
+              formatThaiDateTime(device['last_seen_at']),
+            ),
+            _detailRow(
+              'เชื่อมต่อเมื่อ',
+              formatThaiDateTime(device['paired_at']),
+            ),
+            if (device['last_error'] != null)
+              _detailRow('ข้อผิดพลาดล่าสุด', '${device['last_error']}'),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text('MAC Address', style: AppTextStyles.bodySecondary),
+                const SizedBox(width: 8),
+                Text(
+                  showFullMac ? mac : _maskedMac(mac),
+                  style: AppTextStyles.body.copyWith(fontFamily: 'monospace'),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => setState(() => showFullMac = !showFullMac),
+                  child: Text(showFullMac ? 'ซ่อน' : 'แสดง'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'แสดงเฉพาะเมื่อจำเป็น เช่น ตอนติดต่อขอความช่วยเหลือทางเทคนิค',
+              style: AppTextStyles.caption,
+            ),
+            const SizedBox(height: 16),
+            // ปุ่มเดียว แสดงเฉพาะคนที่มีสิทธิ์จัดการอุปกรณ์
+            if (FarmPermissions.of('${device['farm_id']}').canManageDevices)
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: _showReplaceDialog,
+                  icon: const Icon(Icons.swap_horiz, size: 18),
+                  label: const Text('เปลี่ยน ESP32 (บอร์ดเสีย)'),
+                ),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
       ),
     );
   }
@@ -465,7 +573,10 @@ class _DeviceDetailSheetState extends State<_DeviceDetailSheet> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 120, child: Text(label, style: AppTextStyles.bodySecondary)),
+          SizedBox(
+            width: 120,
+            child: Text(label, style: AppTextStyles.bodySecondary),
+          ),
           Expanded(child: Text(value, style: AppTextStyles.body)),
         ],
       ),

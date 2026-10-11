@@ -1,0 +1,27 @@
+warning: in the working copy of 'project/lib/api/api_config.dart', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/project/.gitignore b/project/.gitignore[m
+[1mindex 8640957..a2c17e4 100644[m
+[1m--- a/project/.gitignore[m
+[1m+++ b/project/.gitignore[m
+[36m@@ -46,4 +46,5 @@[m [mapp.*.map.json[m
+ [m
+ [m
+ server/.env[m
+[31m-server/node_modules/[m
+\ No newline at end of file[m
+[32m+[m[32mserver/node_modules/[m
+[32m+[m[32mserver/src/seeddata.js[m
+\ No newline at end of file[m
+[1mdiff --git a/project/lib/api/api_config.dart b/project/lib/api/api_config.dart[m
+[1mindex a1e043b..11f52e3 100644[m
+[1m--- a/project/lib/api/api_config.dart[m
+[1m+++ b/project/lib/api/api_config.dart[m
+[36m@@ -3,7 +3,7 @@[m
+ class ApiConfig {[m
+   ApiConfig._();[m
+ [m
+[31m-  static const String baseUrl = 'http://localhost:3000/api';[m
+[32m+[m[32m  static const String baseUrl = 'https://farmer-production-6b65.up.railway.app/api';[m
+ [m
+   // เวลาทดสอบบน emulator/มือถือจริงในวง LAN เดียวกัน localhost จะใช้ไม่ได้[m
+   // ต้องเปลี่ยนเป็น IP เครื่องที่รัน backend เช่น 'http://192.168.1.xx:3000/api'[m

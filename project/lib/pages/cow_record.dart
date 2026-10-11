@@ -5,6 +5,7 @@ import '/widgets/header.dart';
 import '/widgets/card.dart';
 import '/services/cow_service.dart';
 import 'cow_purchase_wizard.dart';
+import '/services/farm_permissions.dart';
 
 /// จุดเข้า "บันทึกข้อมูลวัว" — เลือกโหมดก่อนว่าเป็นวัวที่มีอยู่แล้ว (ไม่ผูกรายจ่าย)
 /// หรือวัวที่ซื้อมาใหม่ (ผูกกับรายจ่ายเสมอ → ไปต่อที่ wizard)
@@ -90,6 +91,16 @@ class _CowRecordPageState extends State<CowRecordPage> {
                     icon: Icons.shopping_cart_outlined,
                     isSelected: false,
                     onTap: () {
+                      if (!FarmPermissions.of(widget.farmId).canBuyCow) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'เจ้าของฟาร์มยังไม่เปิดสิทธิ์ซื้อวัวให้พนักงาน',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
                       Navigator.push(
                         context,
                         MaterialPageRoute(
