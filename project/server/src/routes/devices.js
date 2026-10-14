@@ -36,6 +36,7 @@ const SENSOR_FIELDS = {
 };
 
 // ช่วงค่าที่ยอมรับของแต่ละฟิลด์ — นอกช่วง/ไม่ใช่ตัวเลข = ทิ้ง (กัน NaN, ค่าเพี้ยนจาก sensor เสีย)
+// หมายเหตุ: turbidity เป็นค่าดิบจาก ADC (ไม่ใช่ NTU) ถ้าบอร์ดอาจส่งเกิน 10000 ให้ปรับช่วงนี้
 const VALUE_RANGES = {
     airTemperature: [-40, 80],
     humidity: [0, 100],
@@ -63,33 +64,98 @@ const SETTABLE_STATUSES = ['active', 'inactive', 'maintenance'];
 // Logic การตัดสินใจตาม flowchart ที่ตกลงกันไว้
 // ============================================================
 
-// ตารางกำหนดคุณภาพน้ำ — เช็ค TDS (>3000 mg/L ผิดปกติ) และ Turbidity (>5 NTU ผิดปกติ)
-function evaluateWaterQuality(tds, turbidity) {
-    const tdsAbnormal = tds != null && tds > 3000;
-    const turbidityAbnormal = turbidity != null && turbidity > 5;
+// เกณฑ์คุณภาพน้ำเบื้องต้น
+// - TDS หน่วย mg/L
+// - ความขุ่นเป็นค่าดิบจาก ADC (ไม่ใช่ NTU)
+const TDS_LIMIT = 3000;                // TDS > นี้ = เกินเกณฑ์
+const TURBIDITY_WATCH_MIN = 2300;      // 2300–2600 = เฝ้าระวัง (Warning)
+const TURBIDITY_CRITICAL_LIMIT = 2600; // > นี้ = เกินเกณฑ์ (Warning) / ติดต่อกัน 2 รอบ = Critical
 
-    if (tdsAbnormal && turbidityAbnormal) {
+const RAIN_NOTE =
+    'ขณะนี้ฝนตกอยู่หรือไม่? หากฝนตก น้ำจะยังขุ่นมากต่อเนื่องได้ แต่หากฝนไม่ได้ตก ควรรีบไปตรวจดูน้ำทันที';
+
+// ดึงค่าความขุ่นรอบก่อนหน้าของ device เดียวกัน (ไม่เก่าเกิน ALERT_MAX_AGE_MS)
+async function getPreviousTurbidity(deviceId, sensorTime, currentDocId) {
+    const oldest = new Date(sensorTime.getTime() - ALERT_MAX_AGE_MS).toISOString();
+    const { data } = await supabaseAdmin
+        .from('sensor_data')
+        .select('turbidity')
+        .eq('device_id', deviceId)
+        .neq('doc_id', currentDocId)
+        .not('turbidity', 'is', null)
+        .lt('sensor_timestamp', sensorTime.toISOString())
+        .gte('sensor_timestamp', oldest)
+        .order('sensor_timestamp', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    return data?.turbidity ?? null;
+}
+
+// ตารางกำหนดคุณภาพน้ำ
+// หมายเหตุ: title แต่ละเคสต้องไม่ซ้ำกัน เพราะ createNotification กันซ้ำด้วย title
+// (ถ้า Warning กับ Critical ใช้ title เดียวกัน Critical จะถูกกลืน)
+function evaluateWaterQuality(tds, turbidity, prevTurbidity) {
+    const tdsHigh = tds != null && tds > TDS_LIMIT;
+    const turbHigh = turbidity != null && turbidity > TURBIDITY_CRITICAL_LIMIT;
+    const turbWatch =
+        turbidity != null && turbidity >= TURBIDITY_WATCH_MIN && turbidity <= TURBIDITY_CRITICAL_LIMIT;
+    // ขุ่นเกินเกณฑ์ติดกัน 2 รอบขึ้นไป (รอบนี้และรอบก่อนหน้า)
+    const turbRepeated = turbHigh && prevTurbidity != null && prevTurbidity > TURBIDITY_CRITICAL_LIMIT;
+
+    if (turbRepeated && tdsHigh) {
         return {
             category: 'water',
             severity: 'critical',
-            title: 'คุณภาพน้ำอันตราย',
-            message: 'ค่า TDS และความขุ่นของน้ำผิดปกติทั้งคู่ ควรตรวจสอบแหล่งน้ำโดยด่วน',
+            title: 'น้ำขุ่นมากอีกแล้ว และ TDS เกินเกณฑ์',
+            message: `ค่าความขุ่นเกินเกณฑ์ต่อเนื่องและค่า TDS เกินเกณฑ์ ${RAIN_NOTE}`,
         };
     }
-    if (tdsAbnormal) {
+    if (turbRepeated) {
+        return {
+            category: 'water',
+            severity: 'critical',
+            title: 'น้ำขุ่นมากอีกแล้ว',
+            message: `ค่าความขุ่นเกินเกณฑ์ติดต่อกันหลายรอบ ${RAIN_NOTE}`,
+        };
+    }
+    if (turbHigh && tdsHigh) {
+        return {
+            category: 'water',
+            severity: 'warning',
+            title: 'TDS และความขุ่นเกินเกณฑ์',
+            message: 'ค่า TDS เกินเกณฑ์ และค่าความขุ่นสูงเกินเกณฑ์',
+        };
+    }
+    if (turbHigh) {
+        return {
+            category: 'water',
+            severity: 'warning',
+            title: 'น้ำขุ่นเกินเกณฑ์',
+            message: 'ค่าความขุ่นของน้ำสูงเกินเกณฑ์ ควรเฝ้าระวัง',
+        };
+    }
+    if (tdsHigh && turbWatch) {
+        return {
+            category: 'water',
+            severity: 'warning',
+            title: 'TDS เกินเกณฑ์และความขุ่นเฝ้าระวัง',
+            message: 'ค่า TDS เกินเกณฑ์ และค่าความขุ่นอยู่ในระดับเฝ้าระวัง',
+        };
+    }
+    if (tdsHigh) {
         return {
             category: 'water',
             severity: 'warning',
             title: 'ค่าแร่ธาตุในน้ำสูง',
-            message: 'ค่า TDS สูงเกินเกณฑ์ปกติ อาจเป็นอันตรายต่อสุขภาพวัว',
+            message: 'ค่า TDS เกินเกณฑ์ที่กำหนด',
         };
     }
-    if (turbidityAbnormal) {
+    if (turbWatch) {
         return {
             category: 'water',
             severity: 'warning',
-            title: 'น้ำขุ่นผิดปกติ',
-            message: 'ค่าความขุ่นของน้ำสูงเกินเกณฑ์ อาจมีแบคทีเรียปนเปื้อน',
+            title: 'ค่าความขุ่นอยู่ในระดับเฝ้าระวัง',
+            message: 'ค่าความขุ่นอยู่ในช่วง 2,300–2,600 ควรเฝ้าระวัง',
         };
     }
     return null; // ปกติ ไม่ต้องแจ้งเตือน
@@ -531,7 +597,10 @@ router.post('/devices/:deviceId/sensor-data', async (req, res) => {
 
     // --- ตรวจสอบคุณภาพน้ำ (เฉพาะ reading ที่มีค่า tds/turbidity ส่งมา) ---
     if (isFresh && (tds != null || turbidity != null)) {
-        const waterResult = evaluateWaterQuality(tds, turbidity);
+        const prevTurbidity = turbidity != null
+            ? await getPreviousTurbidity(deviceId, sensorTime, data.doc_id)
+            : null;
+        const waterResult = evaluateWaterQuality(tds, turbidity, prevTurbidity);
         if (waterResult) {
             await createNotification(device.farm_id, deviceId, waterResult);
         }

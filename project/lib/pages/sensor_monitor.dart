@@ -9,6 +9,7 @@ import '/widgets/trend_chart.dart';
 import '/services/sensor_service.dart';
 import '/widgets/date_util.dart';
 import '/services/farm_permissions.dart';
+import '/widgets/feedback.dart';
 
 /// หน้าติดตามเฝ้าระวังสิ่งแวดล้อมวัว
 /// บนสุด: กราฟแนวโน้มอุณหภูมิ+THI ย้อนหลัง 24 ชั่วโมง
@@ -169,7 +170,10 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
       ),
     );
 
-    if (registered == true) _load();
+    if (registered == true) {
+      if (mounted) AppFeedback.success(context, 'ลงทะเบียนอุปกรณ์สำเร็จ');
+      _load();
+    }
   }
 
   Future<void> _showDeviceDetail(Map<String, dynamic> device) async {
@@ -484,11 +488,12 @@ class _DeviceDetailSheetState extends State<_DeviceDetailSheet> {
     );
 
     if (confirmed == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('เปลี่ยน ESP32 สำเร็จ รอบอร์ดใหม่เชื่อมต่อครั้งแรก'),
-        ),
+      // เรื่องสำคัญ ใช้ dialog ให้ผู้ใช้กดตกลงรับทราบก่อน
+      await AppFeedback.successDialog(
+        context,
+        'เปลี่ยน ESP32 สำเร็จ\nรอบอร์ดใหม่เชื่อมต่อครั้งแรก',
       );
+      if (!mounted) return;
       Navigator.pop(
         context,
         true,

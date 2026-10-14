@@ -3,6 +3,7 @@ import '/widgets/theme.dart';
 import '/widgets/text.dart';
 import '/widgets/header.dart';
 import '/widgets/card.dart';
+import '/widgets/feedback.dart';
 import '/services/cow_service.dart';
 
 /// บันทึกวัวที่มีอยู่แล้วในฟาร์ม (ไม่ผูกกับรายจ่าย) — เข้าตรงจากหน้า "บันทึกข้อมูลฟาร์ม"
@@ -29,9 +30,7 @@ class _ExistingCowRecordPageState extends State<ExistingCowRecordPage> {
   void _generateDrafts() {
     final count = int.tryParse(countController.text);
     if (count == null || count <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณากรอกจำนวนวัวให้ถูกต้อง')),
-      );
+      AppFeedback.error(context, 'กรุณากรอกจำนวนวัวให้ถูกต้อง');
       return;
     }
     setState(() => drafts = List.generate(count, (_) => CowDraft()));
@@ -44,12 +43,10 @@ class _ExistingCowRecordPageState extends State<ExistingCowRecordPage> {
     setState(() => isSaving = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      AppFeedback.error(context, error);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('บันทึกวัว ${drafts.length} ตัวสำเร็จ')),
-    );
+    AppFeedback.success(context, 'บันทึกวัว ${drafts.length} ตัวสำเร็จ');
     Navigator.pop(context);
   }
 

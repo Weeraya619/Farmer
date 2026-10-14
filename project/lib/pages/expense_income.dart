@@ -3,6 +3,7 @@ import '/widgets/theme.dart';
 import '/widgets/text.dart';
 import '/widgets/header.dart';
 import '/widgets/card.dart';
+import '/widgets/feedback.dart';
 import '/services/finance_service.dart';
 import '/services/cow_service.dart';
 import 'cow_purchase_wizard.dart';
@@ -40,7 +41,9 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
       {}; // ยืนยันขายวัวท้องแล้ว ไม่ต้องเตือนซ้ำ
   String? selectedLotDate; // ล็อตที่กำลังดูอยู่ใน dropdown ล็อต
   String? selectedIndividualCowId; // ตัวที่เลือกใน dropdown วัวที่มีอยู่แล้ว
-  final saleAmountController = TextEditingController();
+  final saleAmountController = TextEditingController(); // ราคารวมวัวที่ไม่ตาย
+  final deadSaleAmountController =
+      TextEditingController(); // ราคารวมวัวที่ตายแล้ว (แยกต่างหาก)
   bool isSaving = false;
 
   // ---------- รายจ่าย (ซื้อยา/ซื้ออาหาร หลายรายการ) ----------
@@ -55,6 +58,7 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
   @override
   void dispose() {
     saleAmountController.dispose();
+    deadSaleAmountController.dispose();
     for (final line in expenseLines) {
       line.dispose();
     }
@@ -99,10 +103,25 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
     final hasNickname = cow['nickname'] != null && cow['nickname'] != '';
     final nickname = hasNickname ? cow['nickname'] : '';
     final gender = cow['gender'] == 'male' ? 'ตัวผู้' : 'ตัวเมีย';
-    final pregnancy = cow['pregnancy_status'] == 'ท้อง' ? ' • ท้อง' : '';
+    final isDead = _isDead(cow);
+    final pregnancy = !isDead && cow['pregnancy_status'] == 'ท้อง'
+        ? ' • ท้อง'
+        : '';
+    final deadTag = isDead ? ' • ตายแล้ว' : '';
     final parts = [lot, nickname, gender].where((s) => s.isNotEmpty);
-    return parts.join(' • ') + pregnancy;
+    return parts.join(' • ') + pregnancy + deadTag;
   }
+
+  // backend ใช้ death_date เป็นตัวบอกว่าวัวตาย (มีวันที่ = ตายแล้ว)
+  bool _isDead(Map<String, dynamic> cow) => cow['death_date'] != null;
+
+  List<Map<String, dynamic>> get _selectedCows => availableCows
+      .where((c) => selectedCowIds.contains('${c['cow_id']}'))
+      .toList();
+  List<Map<String, dynamic>> get _selectedAlive =>
+      _selectedCows.where((c) => !_isDead(c)).toList();
+  List<Map<String, dynamic>> get _selectedDead =>
+      _selectedCows.where(_isDead).toList();
 
   Future<bool> _confirmPregnantSale(Map<String, dynamic> cow) async {
     final result = await showDialog<bool>(
@@ -139,7 +158,7 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
       return;
     }
 
-    final isPregnant = cow['pregnancy_status'] == 'ท้อง';
+    final isPregnant = !_isDead(cow) && cow['pregnancy_status'] == 'ท้อง';
     if (isPregnant && !confirmedPregnantIds.contains(id)) {
       final confirmed = await _confirmPregnantSale(cow);
       if (!confirmed) return; // ไม่ขาย ไม่ต้องเพิ่มเข้ารายการ
@@ -152,16 +171,20 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
 
   Future<void> _saveSale() async {
     if (selectedCowIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณาเลือกวัวที่ต้องการขาย')),
-      );
+      AppFeedback.error(context, 'กรุณาเลือกวัวที่ต้องการขาย');
       return;
     }
-    final amount = double.tryParse(saleAmountController.text) ?? 0;
-    if (amount <= 0) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('กรุณากรอกจำนวนเงิน')));
+    final aliveIds = _selectedAlive.map((c) => '${c['cow_id']}').toList();
+    final deadIds = _selectedDead.map((c) => '${c['cow_id']}').toList();
+    final aliveAmount = double.tryParse(saleAmountController.text) ?? 0;
+    final deadAmount = double.tryParse(deadSaleAmountController.text) ?? 0;
+
+    if (aliveIds.isNotEmpty && aliveAmount <= 0) {
+      AppFeedback.error(context, 'กรุณากรอกราคารวมของวัวที่ไม่ตาย');
+      return;
+    }
+    if (deadIds.isNotEmpty && deadAmount <= 0) {
+      AppFeedback.error(context, 'กรุณากรอกราคาขายของวัวที่ตายแล้ว');
       return;
     }
 
@@ -169,25 +192,24 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
     final error = await cowService.createCowSale(
       farmId: widget.farmId,
       recordDate: selectedDate.toIso8601String().split('T').first,
-      totalPrice: amount,
-      cowIds: selectedCowIds.toList(),
+      totalPrice: aliveIds.isEmpty ? 0 : aliveAmount,
+      cowIds: aliveIds,
+      deadCowIds: deadIds,
+      deadTotalPrice: deadIds.isEmpty ? 0 : deadAmount,
     );
 
     if (!mounted) return;
     setState(() => isSaving = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      AppFeedback.error(context, error);
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('บันทึกรายรับสำเร็จ')));
+    AppFeedback.success(context, 'บันทึกรายรับสำเร็จ');
     setState(() {
       selectedCowIds.clear();
       saleAmountController.clear();
+      deadSaleAmountController.clear();
     });
     _loadAvailableCows();
   }
@@ -195,18 +217,12 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
   Future<void> _saveExpenseLines() async {
     for (final line in expenseLines) {
       if (line.noteController.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('กรุณากรอกรายละเอียดให้ครบทุกรายการ')),
-        );
+        AppFeedback.error(context, 'กรุณากรอกรายละเอียดให้ครบทุกรายการ');
         return;
       }
       if (double.tryParse(line.amountController.text) == null ||
           double.parse(line.amountController.text) <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('กรุณากรอกจำนวนเงินให้ถูกต้องทุกรายการ'),
-          ),
-        );
+        AppFeedback.error(context, 'กรุณากรอกจำนวนเงินให้ถูกต้องทุกรายการ');
         return;
       }
     }
@@ -232,14 +248,10 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
     setState(() => isSaving = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      AppFeedback.error(context, error);
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('บันทึกสำเร็จ')));
+    AppFeedback.success(context, 'บันทึกรายจ่ายสำเร็จ');
     setState(() {
       for (final line in expenseLines) {
         line.dispose();
@@ -383,27 +395,58 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
         if (_individualCows.isNotEmpty) _buildIndividualPicker(),
         if (selectedCowIds.isNotEmpty) _buildSelectedSummary(),
         SectionCard(
-          title: 'จำนวนเงินทั้งหมดที่ขายได้',
+          title: 'จำนวนเงินที่ขายได้',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextField(
-                controller: saleAmountController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                style: AppTextStyles.body,
-                decoration: InputDecoration(
-                  hintText: '0 บาท',
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
+              // ซ่อนช่องนี้เฉพาะตอนเลือกแต่วัวที่ตายล้วน ๆ
+              if (_selectedDead.isEmpty || _selectedAlive.isNotEmpty) ...[
+                TextField(
+                  controller: saleAmountController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
                   ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
+                  style: AppTextStyles.body,
+                  decoration: InputDecoration(
+                    labelText: 'ราคารวมของวัวที่ไม่ตาย',
+                    hintText: '0 บาท',
+                    helperText: 'ใส่เฉพาะราคารวมของวัวที่ไม่ตายเท่านั้น',
+                    helperMaxLines: 2,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
-              ),
+              ],
+              // ช่องแยกสำหรับวัวที่ตาย โผล่เมื่อมีวัวตายอยู่ในรายการที่เลือก
+              if (_selectedDead.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: deadSaleAmountController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  style: AppTextStyles.body,
+                  decoration: InputDecoration(
+                    labelText:
+                        'ราคารวมของวัวที่ตายแล้ว (${_selectedDead.length} ตัว)',
+                    hintText: '0 บาท',
+                    helperText: 'แยกบันทึกต่างหาก ไม่รวมกับวัวที่ไม่ตาย',
+                    helperMaxLines: 2,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -527,6 +570,7 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
                       (c) => '${c['cow_id']}' == selectedIndividualCowId,
                     );
                     await _toggleCow(cow);
+                    if (!mounted) return;
                     setState(() => selectedIndividualCowId = null);
                   },
             icon: const Icon(Icons.add),
@@ -550,7 +594,12 @@ class _ExpenseIncomePageState extends State<ExpenseIncomePage> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(_cowLabel(cow), style: AppTextStyles.body),
+                  child: Text(
+                    _cowLabel(cow),
+                    style: AppTextStyles.body.copyWith(
+                      color: _isDead(cow) ? AppColors.danger : null,
+                    ),
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(

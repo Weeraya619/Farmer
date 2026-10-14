@@ -3,6 +3,7 @@ import '/widgets/theme.dart';
 import '/widgets/text.dart';
 import '/widgets/header.dart';
 import '/widgets/card.dart';
+import '/widgets/feedback.dart';
 import '/services/cow_service.dart';
 
 /// wizard 2 ขั้นตอนสำหรับ "ซื้อวัว" — เข้าได้ทั้งจากหน้ารายจ่ายและหน้าบันทึกวัว
@@ -59,15 +60,11 @@ class _CowPurchaseWizardState extends State<CowPurchaseWizard> {
     final price = double.tryParse(priceController.text);
 
     if (count == null || count <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณากรอกจำนวนวัวให้ถูกต้อง')),
-      );
+      AppFeedback.error(context, 'กรุณากรอกจำนวนวัวให้ถูกต้อง');
       return;
     }
     if (price == null || price <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณากรอกจำนวนเงินให้ถูกต้อง')),
-      );
+      AppFeedback.error(context, 'กรุณากรอกจำนวนเงินให้ถูกต้อง');
       return;
     }
 
@@ -91,13 +88,11 @@ class _CowPurchaseWizardState extends State<CowPurchaseWizard> {
     setState(() => isSaving = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      AppFeedback.error(context, error);
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('บันทึกซื้อวัว ${drafts.length} ตัวสำเร็จ')),
-    );
+    AppFeedback.success(context, 'บันทึกซื้อวัว ${drafts.length} ตัวสำเร็จ');
     Navigator.popUntil(context, (route) => route.isFirst);
   }
 

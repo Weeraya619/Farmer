@@ -3,6 +3,7 @@ import '/widgets/theme.dart';
 import '/widgets/text.dart';
 import '/widgets/header.dart';
 import '/widgets/card.dart';
+import '/widgets/feedback.dart';
 import '/services/cow_service.dart';
 import 'cow_purchase_wizard.dart';
 import '/services/farm_permissions.dart';
@@ -34,9 +35,7 @@ class _CowRecordPageState extends State<CowRecordPage> {
   void _generateDrafts() {
     final count = int.tryParse(countController.text);
     if (count == null || count <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณากรอกจำนวนวัวให้ถูกต้อง')),
-      );
+      AppFeedback.error(context, 'กรุณากรอกจำนวนวัวให้ถูกต้อง');
       return;
     }
     setState(() => drafts = List.generate(count, (_) => CowDraft()));
@@ -49,14 +48,10 @@ class _CowRecordPageState extends State<CowRecordPage> {
     setState(() => isSaving = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      AppFeedback.error(context, error);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('บันทึกวัว ${drafts.length} ตัวสำเร็จ')),
-    );
+    AppFeedback.success(context, 'บันทึกวัว ${drafts.length} ตัวสำเร็จ');
     Navigator.pop(context);
   }
 
@@ -64,7 +59,8 @@ class _CowRecordPageState extends State<CowRecordPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: const AppHeader(farmName: 'บันทึกข้อมูลวัว'),
+      // ส่ง farmId ด้วย ปุ่มกระดิ่งถึงจะทำงาน (เดิมไม่ได้ส่ง ปุ่มกดแล้วไม่เกิดอะไร)
+      appBar: AppHeader(farmName: 'บันทึกข้อมูลวัว', farmId: widget.farmId),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -92,12 +88,9 @@ class _CowRecordPageState extends State<CowRecordPage> {
                     isSelected: false,
                     onTap: () {
                       if (!FarmPermissions.of(widget.farmId).canBuyCow) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'เจ้าของฟาร์มยังไม่เปิดสิทธิ์ซื้อวัวให้พนักงาน',
-                            ),
-                          ),
+                        AppFeedback.error(
+                          context,
+                          'เจ้าของฟาร์มยังไม่เปิดสิทธิ์ซื้อวัวให้พนักงาน',
                         );
                         return;
                       }

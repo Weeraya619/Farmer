@@ -75,11 +75,17 @@ class CowService {
   }
 
   /// บันทึกขายวัว — เขียน finances + อัปเดต cows พร้อมกันในคำสั่งเดียว (atomic)
+  ///
+  /// วัวที่ยังมีชีวิต: cowIds + totalPrice (ราคารวมเฉพาะวัวที่ไม่ตาย)
+  /// วัวที่ตายแล้ว:   deadCowIds + deadTotalPrice (แยกราคา ไม่รวมกับวัวที่ไม่ตาย)
+  /// ส่งเฉพาะกลุ่มที่มีจริง เช่น ขายแต่วัวตายอย่างเดียว ให้ cowIds ว่างและ totalPrice = 0
   Future<String?> createCowSale({
     required String farmId,
     required String recordDate,
     required double totalPrice,
     required List<String> cowIds,
+    List<String> deadCowIds = const [],
+    double deadTotalPrice = 0,
   }) async {
     try {
       final response = await http.post(
@@ -89,6 +95,10 @@ class CowService {
           'recordDate': recordDate,
           'totalPrice': totalPrice,
           'cowIds': cowIds,
+          if (deadCowIds.isNotEmpty) ...{
+            'deadCowIds': deadCowIds,
+            'deadTotalPrice': deadTotalPrice,
+          },
         }),
       );
       final data = jsonDecode(response.body);
