@@ -11,7 +11,7 @@
     <div class="sidebar" id="sidebar"></div>
     <div class="main">
       <h1>อุปกรณ์ทั้งหมด</h1>
-      <p class="page-subtitle">อุปกรณ์เซนเซอร์จากทุกฟาร์มในระบบ — แถวสีเหลือง/แดงคืออุปกรณ์ที่รอเชื่อมต่อ เงียบ (ไม่ส่งข้อมูล) หรือมีปัญหา</p>
+      <p class="page-subtitle">อุปกรณ์เซนเซอร์จากทุกฟาร์มในระบบ — แถวสีเหลือง/แดงคืออุปกรณ์ที่รอเชื่อมต่อ ไม่ส่งข้อมูล หรือมีปัญหา</p>
 
       <div class="toolbar">
         <div style="display:flex; gap:10px;">
@@ -20,7 +20,7 @@
           </select>
           <select id="statusFilter" onchange="applyFilters()">
             <option value="">ทุกสถานะ</option>
-            <option value="silent">🔕 เงียบ (ไม่ส่งข้อมูล)</option>
+            <option value="silent">ไม่ส่งข้อมูล</option>
             <option value="active">เชื่อมต่อแล้ว</option>
             <option value="pending">รอเชื่อมต่อ</option>
             <option value="inactive">ปิดใช้งาน</option>
@@ -43,9 +43,8 @@
 
     // d = แถวอุปกรณ์จาก /admin/devices (มี connection_state / silent_for_minutes จาก backend)
     function statusInfo(d) {
-      // status ในตารางเป็น 'active' แต่ไม่ส่งข้อมูลเกินเกณฑ์ => แสดงเป็น "เงียบ"
       if (d.status === 'active' && d.connection_state === 'silent') {
-        return ['pill-danger', `🔕 เงียบ ${formatSilentMinutes(d.silent_for_minutes)}`, 'row-attention'];
+        return ['pill-danger', `🔕 ไม่ส่งข้อมูลมาแล้ว ${formatSilentMinutes(d.silent_for_minutes)}`, 'row-attention'];
       }
       const map = {
         active: ['pill-success', '✅ เชื่อมต่อแล้ว', ''],
