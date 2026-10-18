@@ -19,6 +19,11 @@ import 'farm_record.dart';
 import 'finance_summary.dart';
 import 'sensor_monitor.dart';
 
+// เกณฑ์ความขุ่น (ค่าดิบจาก ADC ไม่ใช่ NTU) ให้ตรงกับเกณฑ์แจ้งเตือนใน backend (devices.js)
+// ต่ำกว่า 2300 = ปกติ, 2300–2600 = เฝ้าระวัง, เกิน 2600 = ขุ่นเกินเกณฑ์
+const double _turbidityWatchMin = 2300;
+const double _turbidityLimit = 2600;
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
@@ -131,7 +136,7 @@ class _HomePageState extends State<HomePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'อุณหภูมิ/ความชื้นล่าสุด ${formatThaiDateTime(latestReading!['climateTimestamp'])}',
+                          _climateCaption(),
                           style: AppTextStyles.caption,
                         ),
                         const SizedBox(height: 12),
@@ -237,16 +242,31 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// ข้อความหัวการ์ดอุณหภูมิ/ความชื้น — ถ้า backend เฉลี่ยจากหลายอุปกรณ์จะบอกจำนวนไว้ด้วย
+  String _climateCaption() {
+    final time = formatThaiDateTime(latestReading!['climateTimestamp']);
+    final count = int.tryParse('${latestReading!['climateDeviceCount'] ?? ''}') ?? 0;
+    return count > 1
+        ? 'อุณหภูมิ/ความชื้นเฉลี่ยจาก $count อุปกรณ์ ล่าสุด $time'
+        : 'อุณหภูมิ/ความชื้นล่าสุด $time';
+  }
+
   String _waterStatusLabel(dynamic turbidity) {
     if (turbidity == null) return 'ไม่มีข้อมูลความขุ่นน้ำ';
-    final value = double.tryParse('$turbidity') ?? 0;
-    return value > 5 ? 'น้ำขุ่นผิดปกติ' : 'น้ำสะอาด ปกติดี';
+    final value = double.tryParse('$turbidity');
+    if (value == null) return 'ไม่มีข้อมูลความขุ่นน้ำ';
+    if (value > _turbidityLimit) return 'น้ำขุ่นผิดปกติ';
+    if (value >= _turbidityWatchMin) return 'ความขุ่นน้ำเฝ้าระวัง';
+    return 'น้ำสะอาด ปกติดี';
   }
 
   StatusType _waterStatusType(dynamic turbidity) {
     if (turbidity == null) return StatusType.warning;
-    final value = double.tryParse('$turbidity') ?? 0;
-    return value > 5 ? StatusType.danger : StatusType.success;
+    final value = double.tryParse('$turbidity');
+    if (value == null) return StatusType.warning;
+    if (value > _turbidityLimit) return StatusType.danger;
+    if (value >= _turbidityWatchMin) return StatusType.warning;
+    return StatusType.success;
   }
 }
 

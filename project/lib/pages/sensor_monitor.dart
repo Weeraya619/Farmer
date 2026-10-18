@@ -11,6 +11,20 @@ import '/widgets/date_util.dart';
 import '/services/farm_permissions.dart';
 import '/widgets/feedback.dart';
 
+/// ข้อมูลรายชั่วโมงสำหรับกราฟ: อุณหภูมิเฉลี่ยของทุกอุปกรณ์ในชั่วโมงนั้น + ค่า THI
+class _HourBucket {
+  final DateTime hour; // เวลาต้นชั่วโมง (เวลาท้องถิ่น)
+  final Map<String, double> tempByDevice = {}; // device_id -> อุณหภูมิล่าสุดของอุปกรณ์นั้นในชั่วโมงนี้
+  double? thi;
+
+  _HourBucket(this.hour);
+
+  double? get avgTemp {
+    if (tempByDevice.isEmpty) return null;
+    return tempByDevice.values.reduce((a, b) => a + b) / tempByDevice.length;
+  }
+}
+
 /// หน้าติดตามเฝ้าระวังสิ่งแวดล้อมวัว
 /// บนสุด: กราฟแนวโน้มอุณหภูมิ+THI ย้อนหลัง 24 ชั่วโมง
 /// กลาง: สรุปจำนวนอุปกรณ์ทั้งหมด แยกตามชุด
@@ -28,7 +42,7 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
   final sensorService = SensorService();
 
   List<Map<String, dynamic>> devices = [];
-  List<Map<String, dynamic>> trendHistory = [];
+  List<_HourBucket> trendHistory = [];
   bool isLoading = true;
 
   @override
@@ -41,29 +55,42 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
     setState(() => isLoading = true);
     final deviceList = await deviceService.getDevices(widget.farmId);
 
-    // ดึงประวัติทั้งฟาร์ม (ไม่เจาะจง device) แล้วค่อยกรอง/รวมทีหลัง
-    // เพราะถ้าเจาะจง device ตัวเดียว เสี่ยงหยิบผิดตัวตอนมีหลายอุปกรณ์ประเภทเดียวกัน
-    // (เช่น seed ข้อมูลไว้คนละรอบ ทำให้มีอุปกรณ์ dht22 มากกว่า 1 ตัวในฟาร์มเดียว)
-    final rawHistory = await sensorService.getHistory(widget.farmId, limit: 60);
+    // ดึงประวัติทั้งฟาร์ม (ไม่เจาะจง device) แล้วค่อยรวมทีหลัง
+    // เพราะถ้าเจาะจง device ตัวเดียว จะได้ค่าของบอร์ดเดียว ไม่ตรงกับ THI ที่คำนวณจากทุกบอร์ด
+    // limit 100 พอครอบคลุม 24 ชม. แม้มีอุปกรณ์หลายตัวส่งชั่วโมงละครั้ง
+    final rawHistory = await sensorService.getHistory(widget.farmId, limit: 100);
 
-    // แต่ละชั่วโมงอาจมีมากกว่า 1 แถว (มาจากหลาย device ที่วัดอุณหภูมิเหมือนกัน)
-    // เก็บไว้แค่ 1 แถวต่อชั่วโมง (เอาแถวที่ใหม่สุดของชั่วโมงนั้น) กันจุดซ้อนกันบนกราฟ
-    final Map<String, Map<String, dynamic>> byHour = {};
+    // จัดกลุ่มตามชั่วโมง: เก็บอุณหภูมิ "ล่าสุดของแต่ละอุปกรณ์" ในชั่วโมงนั้น แล้วเฉลี่ยข้ามอุปกรณ์
+    // (กันอุปกรณ์ที่ส่งซ้ำในชั่วโมงเดียวกันถูกนับเกินน้ำหนัก)
+    // ค่า THI ใช้ของแถวที่ใหม่สุดในชั่วโมงนั้น ซึ่ง backend คำนวณจากค่าเฉลี่ยทุกบอร์ดอยู่แล้ว
+    final Map<int, _HourBucket> buckets = {};
     for (final row in rawHistory) {
+      // rawHistory เรียงใหม่→เก่า ตัวแรกที่เจอของแต่ละ (ชั่วโมง, อุปกรณ์) คือค่าล่าสุด
       final t = DateTime.tryParse('${row['sensor_timestamp']}')?.toLocal();
       if (t == null) continue;
-      final hourKey = '${t.year}-${t.month}-${t.day}-${t.hour}';
-      byHour.putIfAbsent(
-        hourKey,
-        () => row,
-      ); // rawHistory เรียงใหม่→เก่าอยู่แล้ว ตัวแรกที่เจอคือใหม่สุดของชั่วโมงนั้น
-    }
-    final deduped = byHour.values.toList()
-      ..sort(
-        (a, b) =>
-            '${b['sensor_timestamp']}'.compareTo('${a['sensor_timestamp']}'),
+      final hourStart = DateTime(t.year, t.month, t.day, t.hour);
+      final bucket = buckets.putIfAbsent(
+        hourStart.millisecondsSinceEpoch,
+        () => _HourBucket(hourStart),
       );
-    final last24 = deduped.take(24).toList();
+
+      final temp = row['air_temperature'];
+      final deviceId = '${row['device_id']}';
+      if (temp is num && !bucket.tempByDevice.containsKey(deviceId)) {
+        bucket.tempByDevice[deviceId] = temp.toDouble();
+      }
+
+      final thi = row['thi'];
+      if (thi is num && bucket.thi == null) {
+        bucket.thi = thi.toDouble();
+      }
+    }
+
+    final hours = buckets.values
+        .where((b) => b.avgTemp != null || b.thi != null)
+        .toList()
+      ..sort((a, b) => b.hour.compareTo(a.hour));
+    final last24 = hours.take(24).toList();
 
     if (!mounted) return;
     setState(() {
@@ -261,36 +288,31 @@ class _SensorMonitorPageState extends State<SensorMonitorPage> {
     );
   }
 
+  String _hourLabel(_HourBucket b) =>
+      '${b.hour.hour.toString().padLeft(2, '0')}:00';
+
   Widget _buildTrendSection() {
-    final temps = trendHistory
-        .where((r) => r['air_temperature'] != null)
-        .map((r) => (r['air_temperature'] as num).toDouble())
-        .toList();
-    final thiValues = trendHistory
-        .where((r) => r['thi'] != null)
-        .map((r) => (r['thi'] as num).toDouble())
-        .toList();
-    final hourLabels = trendHistory.map((r) {
-      final t = DateTime.tryParse('${r['sensor_timestamp']}')?.toLocal();
-      return t != null ? '${t.hour.toString().padLeft(2, '0')}:00' : '';
-    }).toList();
+    // แต่ละกราฟกรองชั่วโมงที่ไม่มีค่าออกพร้อมป้ายเวลาของตัวเอง
+    // ทำให้จำนวนค่ากับจำนวนป้ายเท่ากันเสมอ ไม่เลื่อนไม่ตรงกัน
+    final tempBuckets = trendHistory.where((b) => b.avgTemp != null).toList();
+    final thiBuckets = trendHistory.where((b) => b.thi != null).toList();
 
     return SectionCard(
       title: 'แนวโน้มย้อนหลัง 24 ชั่วโมง',
       child: Column(
         children: [
           TrendLineChart(
-            title: 'อุณหภูมิ',
-            values: temps,
-            labels: hourLabels,
+            title: 'อุณหภูมิ (เฉลี่ยทุกอุปกรณ์)',
+            values: tempBuckets.map((b) => b.avgTemp!).toList(),
+            labels: tempBuckets.map(_hourLabel).toList(),
             unit: '°C',
             color: AppColors.danger,
           ),
           const SizedBox(height: 20),
           TrendLineChart(
             title: 'ค่า THI (ความเครียดจากความร้อน)',
-            values: thiValues,
-            labels: hourLabels,
+            values: thiBuckets.map((b) => b.thi!).toList(),
+            labels: thiBuckets.map(_hourLabel).toList(),
             unit: '',
             color: AppColors.warning,
             warningThreshold: 72,

@@ -650,47 +650,110 @@ router.post('/devices/:deviceId/sensor-data', async (req, res) => {
 });
 
 // GET /api/farms/:farmId/sensor-data/latest
-// รวมค่าล่าสุดของ "อุณหภูมิ/ความชื้น" กับ "ค่าน้ำ" แยกกัน เพราะมาจากคนละ device
-// (ถ้าใช้แค่ "แถวล่าสุดแถวเดียว" อาจได้ค่าจาก device ที่ไม่มีข้อมูลน้ำมา ทำให้ดูเหมือนไม่มีข้อมูลทั้งที่จริงมี)
+// อุณหภูมิ/ความชื้น = ค่าเฉลี่ยของ "แถวล่าสุดของแต่ละ device" ภายใน 3 ชม. (หน้าต่างเดียวกับตอนคำนวณ THI)
+// รองรับหลายบอร์ดที่ส่งเหลื่อมกัน — ไม่เอาแค่แถวล่าสุดแถวเดียวที่อาจเป็นของบอร์ดไหนก็ได้
+// ถ้าไม่มีข้อมูลในช่วง 3 ชม. เลย จะถอยกลับไปใช้แถวล่าสุดที่เคยมี (พฤติกรรมเดิม) พร้อมเวลาของมัน
+// ค่าน้ำ (tds/turbidity) ยังใช้แถวล่าสุดที่มีค่าน้ำเหมือนเดิม
+const LATEST_CLIMATE_WINDOW_MS = 3 * 60 * 60 * 1000;
+
+function averageOf(values) {
+    if (values.length === 0) return null;
+    return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
+}
+
 router.get('/farms/:farmId/sensor-data/latest', requireAuth, requireFarmMember(), async (req, res) => {
-    const { farmId } = req.params;
+    try {
+        const { farmId } = req.params;
+        const since = new Date(Date.now() - LATEST_CLIMATE_WINDOW_MS).toISOString();
 
-    const [{ data: climateRows, error: climateError }, { data: waterRows, error: waterError }] = await Promise.all([
-        supabaseAdmin
-            .from('sensor_data')
-            .select('air_temperature, humidity, thi, sensor_timestamp')
-            .eq('farm_id', farmId)
-            .not('air_temperature', 'is', null)
-            .order('sensor_timestamp', { ascending: false })
-            .limit(1),
-        supabaseAdmin
-            .from('sensor_data')
-            .select('tds, turbidity, sensor_timestamp')
-            .eq('farm_id', farmId)
-            .or('tds.not.is.null,turbidity.not.is.null')
-            .order('sensor_timestamp', { ascending: false })
-            .limit(1),
-    ]);
+        const [windowResult, waterResult] = await Promise.all([
+            supabaseAdmin
+                .from('sensor_data')
+                .select('device_id, air_temperature, humidity, sensor_timestamp')
+                .eq('farm_id', farmId)
+                .not('air_temperature', 'is', null)
+                .gte('sensor_timestamp', since)
+                .order('sensor_timestamp', { ascending: false })
+                .limit(200),
+            supabaseAdmin
+                .from('sensor_data')
+                .select('tds, turbidity, sensor_timestamp')
+                .eq('farm_id', farmId)
+                .or('tds.not.is.null,turbidity.not.is.null')
+                .order('sensor_timestamp', { ascending: false })
+                .limit(1),
+        ]);
 
-    if (climateError || waterError) {
-        console.error('GET LATEST SUMMARY ERROR:', climateError?.message || waterError?.message);
-        return res.status(500).json({ error: 'ไม่สามารถโหลดข้อมูล sensor ได้' });
+        if (windowResult.error || waterResult.error) {
+            console.error('GET LATEST SUMMARY ERROR:', windowResult.error?.message || waterResult.error?.message);
+            return res.status(500).json({ error: 'ไม่สามารถโหลดข้อมูล sensor ได้' });
+        }
+
+        // แถวล่าสุดของแต่ละ device (เรียงใหม่→เก่าอยู่แล้ว ตัวแรกที่เจอของแต่ละ device คือล่าสุด)
+        const latestPerDevice = new Map();
+        for (const r of windowResult.data || []) {
+            if (!latestPerDevice.has(r.device_id)) latestPerDevice.set(r.device_id, r);
+        }
+        const used = [...latestPerDevice.values()];
+
+        let airTemperature = null;
+        let humidity = null;
+        let thi = null;
+        let climateTimestamp = null;
+        let climateDeviceCount = 0;
+
+        if (used.length > 0) {
+            // อุณหภูมิกับความชื้นเฉลี่ยแยกกัน กันกรณีบอร์ดหนึ่งอ่านความชื้นไม่ได้ (ค่าว่างไม่ถูกนับเป็น 0)
+            airTemperature = averageOf(used.map((r) => Number(r.air_temperature)));
+            humidity = averageOf(used.filter((r) => r.humidity != null).map((r) => Number(r.humidity)));
+            if (airTemperature != null && humidity != null) {
+                thi = Math.round(calculateTHI(airTemperature, humidity) * 10) / 10;
+            }
+            climateTimestamp = used[0].sensor_timestamp; // เวลาของ reading ที่ใหม่สุดในกลุ่ม
+            climateDeviceCount = used.length;
+        } else {
+            const { data: fallbackRows, error: fallbackError } = await supabaseAdmin
+                .from('sensor_data')
+                .select('air_temperature, humidity, thi, sensor_timestamp')
+                .eq('farm_id', farmId)
+                .not('air_temperature', 'is', null)
+                .order('sensor_timestamp', { ascending: false })
+                .limit(1);
+
+            if (fallbackError) {
+                console.error('GET LATEST FALLBACK ERROR:', fallbackError.message);
+                return res.status(500).json({ error: 'ไม่สามารถโหลดข้อมูล sensor ได้' });
+            }
+
+            const last = fallbackRows?.[0];
+            if (last) {
+                airTemperature = last.air_temperature;
+                humidity = last.humidity;
+                thi = last.thi;
+                climateTimestamp = last.sensor_timestamp;
+                climateDeviceCount = 1;
+            }
+        }
+
+        const water = waterResult.data?.[0] || null;
+
+        res.json({
+            data: {
+                airTemperature,
+                humidity,
+                thi,
+                climateTimestamp,
+                climateDeviceCount, // จำนวนอุปกรณ์ที่ร่วมเฉลี่ย (ฟิลด์ใหม่ ฝั่งแอปเก่าไม่สนใจก็ได้)
+                tds: water?.tds ?? null,
+                turbidity: water?.turbidity ?? null,
+                waterTimestamp: water?.sensor_timestamp ?? null,
+            },
+        });
+    } catch (err) {
+        // กัน error หลุดเป็น unhandled rejection จนโปรเซสดับ (จะกระทบเส้นรับข้อมูลจาก ESP32 ด้วย)
+        console.error('GET LATEST SUMMARY EXCEPTION:', err);
+        res.status(500).json({ error: 'ไม่สามารถโหลดข้อมูล sensor ได้' });
     }
-
-    const climate = climateRows?.[0] || null;
-    const water = waterRows?.[0] || null;
-
-    res.json({
-        data: {
-            airTemperature: climate?.air_temperature ?? null,
-            humidity: climate?.humidity ?? null,
-            thi: climate?.thi ?? null,
-            climateTimestamp: climate?.sensor_timestamp ?? null,
-            tds: water?.tds ?? null,
-            turbidity: water?.turbidity ?? null,
-            waterTimestamp: water?.sensor_timestamp ?? null,
-        },
-    });
 });
 
 // GET /api/farms/:farmId/sensor-data?limit=&deviceId=&from=&to=
