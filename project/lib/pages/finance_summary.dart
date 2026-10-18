@@ -8,6 +8,43 @@ import 'package:project/services/farm_permissions.dart';
 
 enum _PeriodType { month, quarter, year }
 
+/// ชุดสีของแต่ละช่วงเวลา ใช้กับกรอบข้อมูลด้านล่างและปุ่มที่เลือก
+/// เพื่อให้เห็นชัดว่ากรอบสีนี้คือข้อมูลของปุ่มที่กดอยู่ ไม่ใช่ส่วนของกราฟรายปีด้านบน
+class _PeriodTheme {
+  final Color background; // พื้นหลังกรอบข้อมูล
+  final Color accent; // สีปุ่มที่เลือก / แถบโหลด
+  final Color border; // เส้นขอบกรอบและเส้นแบ่ง
+
+  const _PeriodTheme({
+    required this.background,
+    required this.accent,
+    required this.border,
+  });
+}
+
+_PeriodTheme _themeFor(_PeriodType type) {
+  switch (type) {
+    case _PeriodType.month: // เขียว
+      return const _PeriodTheme(
+        background: Color(0xFFE8F5E9),
+        accent: Color(0xFF2E7D32),
+        border: Color(0xFFA5D6A7),
+      );
+    case _PeriodType.quarter: // ฟ้า
+      return const _PeriodTheme(
+        background: Color(0xFFE3F2FD),
+        accent: Color(0xFF1976D2),
+        border: Color(0xFF90CAF9),
+      );
+    case _PeriodType.year: // ส้ม
+      return const _PeriodTheme(
+        background: Color(0xFFFFF3E0),
+        accent: Color(0xFFEF6C00),
+        border: Color(0xFFFFCC80),
+      );
+  }
+}
+
 const _thaiMonths = [
   'มกราคม',
   'กุมภาพันธ์',
@@ -40,7 +77,8 @@ const _thaiMonthsShort = [
 
 /// หน้าดูสรุปรายรับ-รายจ่าย
 /// ด้านบน: กราฟแท่งกำไร/ขาดทุนรายเดือนของทั้งปีที่กำลังดูอยู่ (ไม่ผูกกับตัวเลือกเดือน/ไตรมาส/ปีด้านล่าง)
-/// ด้านล่าง: สรุปยอด + รายการย่อย แยกดูได้ตามเดือน/ไตรมาส/ปีตามที่เลือก
+/// ด้านล่าง: ปุ่มเลือกช่วงเวลา แล้วตามด้วยกรอบสีที่เปลี่ยนตามปุ่มที่เลือก
+///           (เดือน=เขียว ไตรมาส=ฟ้า ปี=ส้ม) ข้างในมีสรุปยอด + รายการย่อย
 /// ตอนเปลี่ยนช่วงเวลา ข้อมูลเก่าจะค้างอยู่จนกว่าข้อมูลใหม่จะมาถึง ไม่ล้างจอเป็นหน้าเปล่าๆ ก่อน
 class FinanceSummaryPage extends StatefulWidget {
   final String farmId;
@@ -193,6 +231,8 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
         ),
       );
     }
+    final theme = _themeFor(periodType);
+
     final totalIncome = entries.fold<double>(
       0,
       (sum, e) => sum + _num(e['cow_sale']),
@@ -231,22 +271,32 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
               SizedBox(
                 height: 3,
                 child: isLoadingList
-                    ? const LinearProgressIndicator(
+                    ? LinearProgressIndicator(
                         minHeight: 3,
+                        color: theme.accent,
                         backgroundColor: Colors.transparent,
                       )
                     : const SizedBox.shrink(),
               ),
               const SizedBox(height: 8),
-              SectionCard(
+              // กรอบสีของข้อมูลช่วงเวลาที่เลือก (สรุปยอด + รายการ)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.background,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: theme.border, width: 1),
+                ),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _summaryRow('รายรับรวม', totalIncome, AppColors.success),
                     const SizedBox(height: 8),
                     _summaryRow('รายจ่ายรวม', totalExpense, AppColors.danger),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 10),
-                      child: Divider(height: 1, color: AppColors.border),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Divider(height: 1, color: theme.border),
                     ),
                     _summaryRow(
                       profit >= 0 ? 'กำไรสุทธิ' : 'ขาดทุนสุทธิ',
@@ -254,32 +304,24 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
                       profit >= 0 ? AppColors.success : AppColors.danger,
                       bold: true,
                     ),
+                    const SizedBox(height: 16),
+                    Text('รายการทั้งหมด', style: AppTextStyles.bodySecondary),
+                    const SizedBox(height: 4),
+                    if (entries.isEmpty && !isLoadingList)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        child: Center(
+                          child: Text(
+                            'ไม่มีรายการในช่วงนี้',
+                            style: AppTextStyles.bodySecondary,
+                          ),
+                        ),
+                      )
+                    else
+                      ...entries.map(_entryRow),
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text(
-                  'รายการทั้งหมด',
-                  style: AppTextStyles.bodySecondary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (entries.isEmpty && !isLoadingList)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Center(
-                    child: Text(
-                      'ไม่มีรายการในช่วงนี้',
-                      style: AppTextStyles.bodySecondary,
-                    ),
-                  ),
-                )
-              else
-                SectionCard(
-                  child: Column(children: entries.map(_entryRow).toList()),
-                ),
             ],
           ),
         ),
@@ -313,7 +355,8 @@ class _FinanceSummaryPageState extends State<FinanceSummaryPage> {
         padding: const EdgeInsets.symmetric(vertical: 10),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? AppColors.primary : AppColors.surfaceMuted,
+          // ปุ่มที่เลือกใช้สีเดียวกับกรอบข้อมูลด้านล่าง จะได้เห็นว่าสัมพันธ์กัน
+          color: selected ? _themeFor(type).accent : AppColors.surfaceMuted,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(

@@ -16,6 +16,24 @@ class AuthService extends ChangeNotifier {
 
   String? get accessToken => _accessToken;
   Map<String, dynamic>? get currentUser => _currentUser;
+
+  /// ชื่อผู้ใช้ของบัญชีที่ล็อกอินอยู่ — หาใน user['username'] ก่อน แล้วค่อยหาใน metadata
+  String? get username {
+    final user = _currentUser;
+    if (user == null) return null;
+
+    String? pick(dynamic map) {
+      if (map is! Map) return null;
+      for (final key in const ['username', 'display_name', 'name']) {
+        final v = map[key];
+        if (v != null && '$v'.trim().isNotEmpty) return '$v';
+      }
+      return null;
+    }
+
+    return pick(user) ?? pick(user['user_metadata']) ?? pick(user['raw_user_meta_data']);
+  }
+
   bool get isLoggedIn => _accessToken != null;
 
   /// เรียกตอนเปิดแอปครั้งแรก เพื่อเช็คว่ามี session เดิมค้างอยู่ไหม
@@ -69,6 +87,7 @@ class AuthService extends ChangeNotifier {
     _accessToken = data['accessToken'];
     _refreshToken = data['refreshToken'];
     _currentUser = data['user'];
+    debugPrint('LOGIN USER = ${jsonEncode(_currentUser)}'); // ชั่วคราว: ดูว่า backend ส่งอะไรมาบ้าง ลบได้หลังแก้เสร็จ
 
     await _storage.write(key: 'access_token', value: _accessToken);
     await _storage.write(key: 'refresh_token', value: _refreshToken);
@@ -76,6 +95,36 @@ class AuthService extends ChangeNotifier {
 
     notifyListeners();
     return null;
+  }
+
+  /// เปลี่ยนรหัสผ่านของบัญชีที่ล็อกอินอยู่ ต้องยืนยันด้วยรหัสผ่านปัจจุบันก่อน
+  /// คืน null ถ้าสำเร็จ หรือข้อความ error
+  Future<String?> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/auth/change-password'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+      );
+
+      final dynamic data = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+      if (response.statusCode != 200) {
+        final message = data is Map ? data['error'] : null;
+        return message?.toString() ?? 'เปลี่ยนรหัสผ่านไม่สำเร็จ';
+      }
+      return null;
+    } catch (_) {
+      return 'เชื่อมต่อ server ไม่ได้ ลองใหม่อีกครั้ง';
+    }
   }
 
   Future<void> signOut() async {

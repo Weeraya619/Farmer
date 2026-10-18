@@ -13,7 +13,9 @@ class _RegisterPageState extends State<RegisterPage> {
   final usernameController = TextEditingController();
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
   bool obscurePassword = true;
+  bool obscureConfirmPassword = true;
   bool isLoading = false;
 
   @override
@@ -21,6 +23,7 @@ class _RegisterPageState extends State<RegisterPage> {
     usernameController.dispose();
     emailController.dispose();
     passwordController.dispose();
+    confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -28,8 +31,9 @@ class _RegisterPageState extends State<RegisterPage> {
     final username = usernameController.text.trim();
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
+    final confirmPassword = confirmPasswordController.text.trim();
 
-    if (username.isEmpty || email.isEmpty || password.isEmpty) {
+    if (username.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('กรุณากรอกข้อมูลให้ครบถ้วน')),
       );
@@ -38,6 +42,12 @@ class _RegisterPageState extends State<RegisterPage> {
     if (password.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร')),
+      );
+      return;
+    }
+    if (password != confirmPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน')),
       );
       return;
     }
@@ -102,6 +112,21 @@ class _RegisterPageState extends State<RegisterPage> {
                     onPressed: () => setState(() => obscurePassword = !obscurePassword),
                   ),
                 ),
+                const SizedBox(height: 16),
+                _field(
+                  'ยืนยันรหัสผ่าน',
+                  confirmPasswordController,
+                  'กรอกรหัสผ่านอีกครั้ง',
+                  obscureText: obscureConfirmPassword,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscureConfirmPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                      size: 20,
+                      color: AppColors.textMuted,
+                    ),
+                    onPressed: () => setState(() => obscureConfirmPassword = !obscureConfirmPassword),
+                  ),
+                ),
                 const SizedBox(height: 24),
 
                 SizedBox(
@@ -125,6 +150,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   onPressed: () => Navigator.pushReplacementNamed(context, '/loginpage'),
                   child: Text('มีบัญชีอยู่แล้ว เข้าสู่ระบบ', style: AppTextStyles.bodySecondary),
                 ),
+                const SizedBox(height: 16),
               ],
             ),
           ),

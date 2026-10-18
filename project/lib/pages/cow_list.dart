@@ -11,7 +11,7 @@ enum _ViewTab { active, sold }
 /// หน้าดูภาพรวมวัวในฟาร์ม — การ์ดสรุปด้านบน + แท็บแยกวัวที่ยังอยู่/ขายแล้ว
 /// วัวที่ยังอยู่ในฟาร์มแยกเป็นล็อต (ตามวันที่ซื้อ) + ส่วนวัวที่มีอยู่แล้ว เรียงใหม่→เก่าทั้งคู่
 /// วัวที่ขายแล้วเรียงตามวันที่ขาย ใหม่→เก่า ไม่แยกล็อต
-/// พนักงานที่ไม่มีสิทธิ์การเงินจะไม่เห็นราคาขาย (backend ตัดฟิลด์ราคาออกอยู่แล้ว)
+/// พนักงานที่ไม่มีสิทธิ์การเงินจะไม่เห็นราคาซื้อ/ขาย (backend ตัดฟิลด์ราคาออกอยู่แล้ว)
 class CowListPage extends StatefulWidget {
   final String farmId;
   const CowListPage({super.key, required this.farmId});
@@ -26,6 +26,9 @@ class _CowListPageState extends State<CowListPage> {
   List<Map<String, dynamic>> allCows = [];
   bool isLoading = true;
   _ViewTab tab = _ViewTab.active;
+
+  // เห็นราคาได้เฉพาะคนที่มีสิทธิ์การเงิน (backend ก็ตัดฟิลด์ราคาออกให้คนที่ไม่มีสิทธิ์อยู่แล้ว)
+  bool get _canSeePrice => FarmPermissions.of(widget.farmId).canFinance;
 
   @override
   void initState() {
@@ -67,11 +70,38 @@ class _CowListPageState extends State<CowListPage> {
   List<Map<String, dynamic>> get _activeExisting =>
       _activeCows.where((c) => c['origin_type'] != 'ซื้อมาใหม่').toList();
 
+  /// แปลงตัวเลขราคาเป็นข้อความมีจุลภาค เช่น 23000 -> 23,000
+  /// คืน null ถ้าไม่มีราคา (ฟิลด์ว่าง หรือ backend ตัดทิ้งเพราะไม่มีสิทธิ์)
+  String? _fmtMoney(dynamic v) {
+    if (v == null) return null;
+    final n = num.tryParse('$v');
+    if (n == null) return null;
+    return n.round().toString().replaceAllMapped(
+          RegExp(r'\B(?=(\d{3})+(?!\d))'),
+          (m) => ',',
+        );
+  }
+
+  /// บรรทัดราคาของวัวแต่ละตัว เช่น "ซื้อ 23,000 บาท • ขาย 32,000 บาท"
+  /// ไม่มีสิทธิ์ดูราคา หรือไม่มีราคาทั้งคู่ (เช่นวัวที่มีอยู่แล้ว) จะคืน null
+  String? _priceLine(Map<String, dynamic> cow) {
+    if (!_canSeePrice) return null;
+    final buy = _fmtMoney(cow['purchase_price']);
+    final sell = _fmtMoney(cow['sale_price']);
+    final parts = [
+      if (buy != null) 'ซื้อ $buy บาท',
+      if (sell != null) 'ขาย $sell บาท',
+    ];
+    return parts.isEmpty ? null : parts.join(' • ');
+  }
+
   Future<void> _showEditDialog(Map<String, dynamic> cow) async {
     final nicknameController = TextEditingController(text: cow['nickname'] ?? '');
     String status = cow['death_date'] != null
         ? 'ตาย'
         : (cow['health_status'] == 'ป่วย' ? 'ป่วย' : 'ปกติ');
+    final purchasePrice = _canSeePrice ? _fmtMoney(cow['purchase_price']) : null;
+    final salePrice = _canSeePrice ? _fmtMoney(cow['sale_price']) : null;
 
     final result = await showDialog<bool>(
       context: context,
@@ -99,6 +129,17 @@ class _CowListPageState extends State<CowListPage> {
                   );
                 }).toList(),
               ),
+              if (purchasePrice != null || salePrice != null) ...[
+                const SizedBox(height: 16),
+                Text('ราคา', style: AppTextStyles.bodySecondary),
+                const SizedBox(height: 4),
+                if (purchasePrice != null)
+                  Text('ราคาซื้อ $purchasePrice บาท', style: AppTextStyles.body),
+                if (salePrice != null)
+                  Text('ราคาขาย $salePrice บาท', style: AppTextStyles.body),
+                const SizedBox(height: 2),
+                Text('ราคาเป็นค่าเฉลี่ยต่อตัวจากยอดรวมที่บันทึก', style: AppTextStyles.caption),
+              ],
             ],
           ),
           actions: [
@@ -145,6 +186,8 @@ class _CowListPageState extends State<CowListPage> {
     final female = aliveActive.where((c) => c['gender'] == 'female').length;
     final pregnant = aliveActive.where((c) => c['pregnancy_status'] == 'ท้อง').length;
 
+    // ขายแล้ว = ขายแล้วและไม่ได้ตาย (วัวตายที่ขายแล้วไปนับในช่อง "ตาย (ขายแล้ว)")
+    final soldAlive = allCows.where((c) => c['sale_date'] != null && c['death_date'] == null).length;
     final deadSold = allCows.where((c) => c['death_date'] != null && c['sale_date'] != null).length;
     final deadNotSold = allCows.where((c) => c['death_date'] != null && c['sale_date'] == null).length;
 
@@ -171,18 +214,17 @@ class _CowListPageState extends State<CowListPage> {
                               _summaryStat('ท้อง', pregnant),
                             ],
                           ),
-                          if (deadSold > 0 || deadNotSold > 0) ...[
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 10),
-                              child: Divider(height: 1, color: AppColors.border),
-                            ),
-                            Row(
-                              children: [
-                                _summaryStat('ตาย (ขายแล้ว)', deadSold),
-                                _summaryStat('ตาย (ยังไม่ขาย)', deadNotSold),
-                              ],
-                            ),
-                          ],
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            child: Divider(height: 1, color: AppColors.border),
+                          ),
+                          Row(
+                            children: [
+                              _summaryStat('ขายแล้ว', soldAlive),
+                              _summaryStat('ตาย (ขายแล้ว)', deadSold),
+                              _summaryStat('ตาย (ยังไม่ขาย)', deadNotSold),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -261,21 +303,18 @@ class _CowListPageState extends State<CowListPage> {
     if (_soldCows.isEmpty) {
       return [Padding(padding: const EdgeInsets.symmetric(vertical: 30), child: Center(child: Text('ยังไม่มีวัวที่ขาย', style: AppTextStyles.bodySecondary)))];
     }
-
-    // พนักงานที่ปิดการเงินไม่เห็นราคาขาย (backend ไม่ส่งฟิลด์ sale_price มาให้อยู่แล้ว)
-    final canSeePrice = FarmPermissions.of(widget.farmId).canFinance;
-
     return [
       SectionCard(
         child: Column(
           children: _soldCows.map((cow) {
+            // พนักงานที่ปิดการเงินไม่เห็นราคา (_priceLine คืน null ให้เอง)
+            final price = _priceLine(cow);
             return ListTile(
               contentPadding: EdgeInsets.zero,
+              isThreeLine: price != null,
               title: Text(_cowRowLabel(cow), style: AppTextStyles.body),
               subtitle: Text(
-                canSeePrice
-                    ? 'ขายเมื่อ ${cow['sale_date']} • ${cow['sale_price'] ?? '-'} บาท'
-                    : 'ขายเมื่อ ${cow['sale_date']}',
+                'ขายเมื่อ ${cow['sale_date']}${price != null ? '\n$price' : ''}',
                 style: AppTextStyles.caption,
               ),
             );
@@ -288,6 +327,7 @@ class _CowListPageState extends State<CowListPage> {
   Widget _cowRow(Map<String, dynamic> cow) {
     final isDead = cow['death_date'] != null;
     final isSick = cow['health_status'] == 'ป่วย';
+    final price = _priceLine(cow);
 
     return InkWell(
       onTap: () => _showEditDialog(cow),
@@ -296,13 +336,23 @@ class _CowListPageState extends State<CowListPage> {
         child: Row(
           children: [
             Expanded(
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: Text(_cowRowLabel(cow), style: AppTextStyles.body)),
-                  if (isDead)
-                    _statusTag('ตาย', AppColors.dangerBg, AppColors.danger)
-                  else if (isSick)
-                    _statusTag('ป่วย', AppColors.warningBg, AppColors.warning),
+                  Row(
+                    children: [
+                      Expanded(child: Text(_cowRowLabel(cow), style: AppTextStyles.body)),
+                      if (isDead)
+                        _statusTag('ตาย', AppColors.dangerBg, AppColors.danger)
+                      else if (isSick)
+                        _statusTag('ป่วย', AppColors.warningBg, AppColors.warning),
+                    ],
+                  ),
+                  if (price != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(price, style: AppTextStyles.caption),
+                    ),
                 ],
               ),
             ),

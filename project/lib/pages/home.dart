@@ -8,7 +8,9 @@ import '/widgets/card.dart';
 import '/widgets/button.dart';
 import '/widgets/statuspill.dart';
 import '/widgets/date_util.dart';
+import '/widgets/permission_gate.dart';
 import '/services/farm_service.dart';
+import '/services/farm_permissions.dart';
 import '/services/sensor_service.dart';
 import 'login.dart';
 import 'account.dart';
@@ -58,6 +60,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _logout() async {
     await authService.signOut();
+    FarmService.clearSelection();
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
@@ -184,18 +187,23 @@ class _HomePageState extends State<HomePage> {
           },
         ),
         const SizedBox(height: 10),
-        MenuButton(
-          icon: Icons.bar_chart_outlined,
-          label: 'ดูรายรับ-รายจ่าย',
-          onTap: () {
-            if (farmService.selectedFarmId == null) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => FinanceSummaryPage(farmId: farmService.selectedFarmId!),
-              ),
-            );
-          },
+        // พนักงานที่เจ้าของยังไม่เปิดสิทธิ์การเงินจะเห็นปุ่มจาง (สิทธิ์จริงบังคับที่ backend)
+        PermissionGate(
+          allowed: FarmPermissions.of(farmService.selectedFarmId).canFinance,
+          message: 'เจ้าของฟาร์มยังไม่เปิดสิทธิ์ดูข้อมูลการเงินให้พนักงาน',
+          child: MenuButton(
+            icon: Icons.bar_chart_outlined,
+            label: 'ดูรายรับ-รายจ่าย',
+            onTap: () {
+              if (farmService.selectedFarmId == null) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => FinanceSummaryPage(farmId: farmService.selectedFarmId!),
+                ),
+              );
+            },
+          ),
         ),
         const SizedBox(height: 10),
         MenuButton(

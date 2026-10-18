@@ -5,7 +5,6 @@ import 'package:project/api/api_config.dart';
 import 'package:project/main.dart';
 import 'package:project/services/farm_permissions.dart';
 
-/// ผลลัพธ์ของการเรียก API: สำเร็จ → data / ไม่สำเร็จ → error (ข้อความภาษาไทยจาก backend)
 class ApiResult<T> {
   final T? data;
   final String? error;
@@ -13,13 +12,18 @@ class ApiResult<T> {
   bool get ok => error == null;
 }
 
-/// ดึงข้อมูลฟาร์มของ user ที่ login อยู่ ผ่าน Node.js API
-/// (แทนที่ FarmSelectionService เดิมที่เรียก Supabase/getIdToken ตรง)
 class FarmService extends ChangeNotifier {
   List<Map<String, dynamic>> farms = [];
   Map<String, dynamic>? selectedFarm;
   bool isLoading = true;
   String? errorMessage;
+
+  // ฟาร์มที่เลือกอยู่ เก็บแบบ static เพื่อให้ทุกหน้าที่สร้าง FarmService() ของตัวเองเห็นฟาร์มเดียวกัน
+  // (เดิมแต่ละหน้าเก็บของใครของมัน หน้าบัญชีเปลี่ยนฟาร์มแล้วหน้าอื่นเลยไม่รู้)
+  static String? _sharedSelectedFarmId;
+
+  /// หน้าที่ต้องโหลดข้อมูลใหม่เมื่อเปลี่ยนฟาร์ม ให้ addListener ที่ตัวนี้
+  static final ValueNotifier<String?> selectedFarmIdNotifier = ValueNotifier<String?>(null);
 
   Map<String, String> get _authHeaders => {
         'Authorization': 'Bearer ${authService.accessToken}',
@@ -31,8 +35,9 @@ class FarmService extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
 
-    // จำฟาร์มที่เลือกอยู่ไว้ก่อน — โหลดใหม่แล้วต้องไม่เด้งกลับไปฟาร์มแรก
-    final previousId = selectedFarmId;
+    // ใช้ค่า shared ก่อนเสมอ เพราะเป็นฟาร์มที่ผู้ใช้เลือกล่าสุดจากทุกหน้า
+    // (เดิมใช้ selectedFarmId ของ instance ก่อน ทำให้ค่าเก่าของหน้านั้นเขียนทับฟาร์มที่เพิ่งเลือก)
+    final previousId = _sharedSelectedFarmId ?? selectedFarmId;
 
     try {
       final response = await http.get(
@@ -48,12 +53,15 @@ class FarmService extends ChangeNotifier {
 
         if (farms.isEmpty) {
           selectedFarm = null;
+          _sharedSelectedFarmId = null;
         } else {
           selectedFarm = farms.firstWhere(
             (f) => f['farm_id'] == previousId,
             orElse: () => farms.first,
           );
+          _sharedSelectedFarmId = selectedFarm!['farm_id'];
         }
+        selectedFarmIdNotifier.value = _sharedSelectedFarmId;
       } else if (response.statusCode == 401) {
         errorMessage = 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่';
       } else {
@@ -73,6 +81,20 @@ class FarmService extends ChangeNotifier {
 
   /// สิทธิ์ของ user ในฟาร์มที่เลือกอยู่
   FarmPermissions get selectedPermissions => FarmPermissions.of(selectedFarmId);
+
+  /// เปลี่ยนฟาร์มที่ใช้งาน — ทุกหน้าที่โหลดฟาร์มใหม่จะได้ฟาร์มนี้ และหน้าที่ฟัง selectedFarmIdNotifier จะถูกแจ้ง
+  void selectFarm(Map<String, dynamic> farm) {
+    selectedFarm = farm;
+    _sharedSelectedFarmId = farm['farm_id'];
+    selectedFarmIdNotifier.value = farm['farm_id'];
+    notifyListeners();
+  }
+
+  /// ล้างฟาร์มที่เลือกไว้ (เรียกตอนออกจากระบบ)
+  static void clearSelection() {
+    _sharedSelectedFarmId = null;
+    selectedFarmIdNotifier.value = null;
+  }
 
   /// สร้างฟาร์มใหม่ ผู้สร้างกลายเป็น owner อัตโนมัติ (ฝั่ง backend จัดการให้)
   /// คืนค่า null ถ้าสำเร็จ หรือข้อความ error ถ้าไม่สำเร็จ

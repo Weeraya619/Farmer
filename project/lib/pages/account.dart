@@ -9,6 +9,7 @@ import 'package:project/services/farm_permissions.dart';
 import 'farm_manage.dart';
 import 'join_farm.dart';
 import 'login.dart';
+import 'profile.dart';
 
 class AccountPage extends StatefulWidget {
   const AccountPage({super.key});
@@ -103,6 +104,14 @@ class _AccountPageState extends State<AccountPage> {
     if (mounted) _loadAll();
   }
 
+  /// เลือกฟาร์มแล้วเด้งกลับหน้าโฮมทันที
+  /// หน้าโฮมจะเรียก _loadAll() เองหลังจาก await Navigator.push(AccountPage) จบ
+  /// และ loadFarms() จะอ่านฟาร์มที่เพิ่งเลือกจากค่า shared
+  void _selectAndGoHome(Map<String, dynamic> farm) {
+    farmService.selectFarm(farm);
+    Navigator.pop(context);
+  }
+
   Future<void> _leaveFarm(Map<String, dynamic> farm) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -130,6 +139,7 @@ class _AccountPageState extends State<AccountPage> {
 
   Future<void> _logout() async {
     await authService.signOut();
+    FarmService.clearSelection();
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
@@ -176,11 +186,7 @@ class _AccountPageState extends State<AccountPage> {
                 Text('(กำลังใช้งาน)', style: AppTextStyles.caption.copyWith(color: AppColors.primary))
               else
                 TextButton(
-                  onPressed: () {
-                    setState(() {
-                      farmService.selectedFarm = farm;
-                    });
-                  },
+                  onPressed: () => _selectAndGoHome(farm),
                   child: const Text('เลือก'),
                 ),
             ],
@@ -217,7 +223,7 @@ class _AccountPageState extends State<AccountPage> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppHeader(
-        farmName: authService.currentUser?['username'] ?? 'บัญชีของฉัน',
+        farmName: authService.username ?? 'บัญชีของฉัน',
         farmId: farmService.selectedFarmId,
       ),
       body: SafeArea(
@@ -296,9 +302,12 @@ class _AccountPageState extends State<AccountPage> {
                       child: Column(
                         children: [
                           ListTile(
-                            title: Text('ความปลอดภัย', style: AppTextStyles.body),
+                            title: Text('ข้อมูลส่วนตัว', style: AppTextStyles.body),
                             trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
-                            onTap: () {},
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const ProfilePage()),
+                            ),
                           ),
                           const Divider(height: 1, color: AppColors.border),
                           ListTile(
